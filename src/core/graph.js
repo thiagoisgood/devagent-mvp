@@ -1,5 +1,6 @@
 import { askAI } from './llm.js';
 import { getBlacklist } from './memory.js';
+import inquirer from 'inquirer';
 import { access } from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
@@ -7,6 +8,21 @@ import { promisify } from 'util';
 import { replaceFunction } from './astEditor.js';
 
 const execAsync = promisify(exec);
+
+async function askCommandPermission(command) {
+  const message = `\x1b[33m[Security]\x1b[0m AI 申请执行终端命令: ${command}，是否允许？`;
+
+  const { confirmed } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmed',
+      message,
+      default: true,
+    },
+  ]);
+
+  return confirmed;
+}
 
 const INITIAL_STATE = {
   context: null,
@@ -29,30 +45,52 @@ async function supervisor(state) {
   const blacklist = await getBlacklist();
 
   const sys = [
-    '你是一台**无情的代码修复机器**，只负责根据错误日志和项目上下文直接给出下一步「代码手术」方案。',
-    '你的唯一任务是：决定要改写哪个文件中的哪一个函数，并给出该函数**完整且已经修复后的代码块**。',
+    '你是一台**无情的 DevAgent Supervisor**，根据错误日志和项目上下文，为下游执行器规划下一步「行动方案」。',
+    '现在你拥有两种武器，可以在每一轮只选择其中一种：',
     '',
-    '【手术铁律】',
-    '- 除非报错明确指出测试文件语法错误，否则你【绝对优先】修改源业务代码文件（例如 "/sandbox/mathUtils.js"、"src/core/xxx.js"），而不是去修改测试文件（例如 "test.js"、"src/test.js"）。',
+    '【武器 1：edit_code（改代码）】',
+    '- 使用场景：当你判断错误主要来源于代码逻辑 / 类型问题 / 函数实现错误时。',
+    '- 你的任务是：决定要改写哪个文件中的哪一个函数，并给出该函数**完整且已经修复后的代码块**。',
+    '',
+    '【武器 2：run_command（执行终端命令）】',
+    '- 使用场景：当你判断错误主要来源于缺少 npm 依赖、需要创建文件夹、缺少构建产物、依赖未安装、需要查看系统环境（例如 node 版本 / npm 版本）等「环境 / DevOps」问题时。',
+    '- 你的任务是：给出一条需要在终端中执行的命令（例如 "npm install lodash"、"mkdir -p sandbox"、"node -v" 等）。',
+    '',
+    '【手术铁律（仅对 edit_code 生效）】',
+    '- 除非报错明确指出测试文件语法错误，否则你【绝对优先】修改源业务代码文件（例如 "sandbox/mathUtils.js"、"src/core/xxx.js"），而不是去修改测试文件（例如 "test.js"、"src/test.js"）。',
     '- 你提供的 target_function 必须是该文件中真实存在的、标准的函数声明名称（例如 "add"、"multiply"、"handleError"、"createServer"）。绝对不要臆造测试块名称（例如 "test_add"、"should_add"、"add_should_return_sum" 等）。',
     '【导出守则】如果你修改的函数在原文件中带有 export 或 export const 关键字，你输出的 new_code 必须原封不动地带上这些导出声明，绝不能丢失！',
     '【路径守则】你返回的 file 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
     '',
-    '【输出格式的强制要求】',
-    '- 你**只能**输出一个 JSON 对象，且**必须且只允许**包含以下四个字段：',
-    '  - thought: string，用于简短说明你根据错误日志做出的思考与决策过程（不超过 3 句）。',
-    '  - file: string，需要修改的相对文件路径，例如 "src/test.js" 或 "test.js"。',
-    '  - target_function: string，需要修改的函数名称（必须极其准确，例如 "handleError" 或 "createServer"）。',
-    '  - new_code: string，修复后的该函数完整代码块（不要带 markdown 标记，且**绝对不要**包含整个文件的其他代码）。',
+    '【输出格式的强制要求（双模指令）】',
+    '- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。',
+    '- 该 JSON 对象必须包含一个字段 action，且只能是 "edit_code" 或 "run_command" 之一。',
+    '',
+    '当你选择武器 1（改代码）时，输出格式必须**严格**为：',
+    '{',
+    '  "action": "edit_code",',
+    '  "thought": "string，简要说明你根据错误日志的分析与决策（不超过 3 句）",',
+    '  "file": "string，相对文件路径，例如 \\"sandbox/mathUtils.js\\" 或 \\"src/core/xxx.js\\"",',
+    '  "target_function": "string，需要修改的函数名称，例如 \\"add\\"、\\"handleError\\"",',
+    '  "new_code": "string，修复后的该函数完整代码块（不要带 markdown 标记，且绝对不要包含整个文件的其他代码）"',
+    '}',
+    '',
+    '当你选择武器 2（执行终端命令）时，输出格式必须**严格**为：',
+    '{',
+    '  "action": "run_command",',
+    '  "thought": "string，简要说明你为什么需要执行这条命令（不超过 3 句）",',
+    '  "command": "string，需要在终端执行的完整命令，例如 \\"npm install lodash\\"、\\"mkdir -p sandbox\\""',
+    '}',
     '',
     '【绝对禁止的行为】',
-    '- 不允许输出除 thought、file、target_function、new_code 之外的任何字段。',
-    '- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、action、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。',
+    '- 不允许输出除 action、thought、file、target_function、new_code、command 之外的任何字段。',
+    '- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。',
     '- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。',
     '- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。',
     '',
     '【再提醒一次】',
-    '- 你是一个**冷酷的代码修复执行大脑**，只输出一个纯粹的 JSON 对象，且键名严格为 thought、file、target_function、new_code。',
+    '- 你是一个**冷酷的 Supervisor 大脑**，只输出一个纯粹的 JSON 对象。',
+    '- 该对象必须包含 action 字段，并根据你选择的武器严格符合上述结构。',
     '- 如果你输出了多余字段、Markdown 包裹、输出了整个文件的代码，或任意非 JSON 垃圾内容，将会被视为**严重错误**。',
     '',
     '现在，请根据给定的错误日志、项目上下文和黑名单，严格按上述要求输出 JSON 对象。',
@@ -111,21 +149,17 @@ async function executor(state) {
   let file;
   let targetFunction;
   let newCode;
+  let action;
+  let command;
 
   if (plan && typeof plan === 'object') {
     const extractPlan = (value) => {
       if (
         value &&
         typeof value === 'object' &&
-        typeof value.file === 'string' &&
-        typeof value.target_function === 'string' &&
-        typeof value.new_code === 'string'
+        typeof value.action === 'string'
       ) {
-        return {
-          file: value.file,
-          targetFunction: value.target_function,
-          newCode: value.new_code,
-        };
+        return value;
       }
       return null;
     };
@@ -144,10 +178,81 @@ async function executor(state) {
     }
 
     if (extracted) {
-      ({ file, targetFunction, newCode } = extracted);
+      action = extracted.action;
+      if (action === 'run_command') {
+        if (typeof extracted.command === 'string') {
+          command = extracted.command;
+        }
+      } else if (action === 'edit_code' || !action) {
+        if (
+          typeof extracted.file === 'string' &&
+          typeof extracted.target_function === 'string' &&
+          typeof extracted.new_code === 'string'
+        ) {
+          file = extracted.file;
+          targetFunction = extracted.target_function;
+          newCode = extracted.new_code;
+          if (!action) {
+            action = 'edit_code';
+          }
+        }
+      }
     }
   }
 
+  if (!action) {
+    console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 action 字段，无法路由执行。');
+    console.warn('当前 plan 内容为:', plan);
+    state.retryCount += 1;
+    return state;
+  }
+
+  if (action === 'run_command') {
+    if (!command) {
+      console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] run_command 计划缺少 command 字段，跳过执行。');
+      console.warn('当前 plan 内容为:', plan);
+      state.retryCount += 1;
+      return state;
+    }
+
+    const allowed = await askCommandPermission(command);
+
+    if (!allowed) {
+      console.log('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 人类已拦截该命令的执行。');
+      state.errorLog = '人类拒绝了该命令的执行，请尝试其他方案';
+      state.retryCount += 1;
+      return state;
+    }
+
+    try {
+      const { stdout, stderr } = await execAsync(command);
+
+      if (stdout) {
+        process.stdout.write(stdout);
+      }
+      if (stderr) {
+        process.stderr.write(stderr);
+      }
+
+      state.errorLog = '';
+      state.status = 'success';
+      return state;
+    } catch (error) {
+      const stderr = error.stderr || error.message || '';
+      if (error.stdout) {
+        process.stdout.write(error.stdout);
+      }
+      if (error.stderr) {
+        process.stderr.write(error.stderr);
+      }
+
+      state.errorLog = stderr;
+      state.retryCount += 1;
+      return state;
+    }
+  }
+
+  // 默认或 action === 'edit_code' 走原有代码修复分支
   if (!file || !targetFunction || !newCode) {
     console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 file、target_function 或 new_code 字段，跳过物理覆写。');
     console.warn('当前 plan 内容为:', plan);
@@ -195,7 +300,9 @@ async function executor(state) {
     }
   }
 
-  state.retryCount += 1;
+  if (state.status !== 'success') {
+    state.retryCount += 1;
+  }
   return state;
 }
 
