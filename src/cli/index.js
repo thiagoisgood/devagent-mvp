@@ -1,9 +1,64 @@
 #!/usr/bin/env node
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createCheckpoint, rollback } from '../security/gitRollback.js';
 import { appGraph } from '../core/graph.js';
 import { getStagedDiff, getProjectTree } from '../core/contextFetcher.js';
 import { addBlacklist } from '../core/memory.js';
 import { askModelChoice, showSpinner } from './ui.js';
+
+function runTests() {
+  return new Promise((resolve) => {
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const testPath = path.resolve(__dirname, '..', 'test.js');
+
+      const child = spawn(process.execPath, [testPath], {
+        cwd: process.cwd(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('error', (error) => {
+        const errorLog = [
+          'Test runner failed to start.',
+          `Error: ${error.message}`,
+        ].join('\n');
+        resolve({ errorLog, hasError: true });
+      });
+
+      child.on('close', (code) => {
+        const hasError = code !== 0 || Boolean(stderr.trim());
+        const summaryLines = [
+          `Test exit code: ${code}`,
+          stderr.trim() ? `stderr:\n${stderr.trim()}` : '',
+          stdout.trim() ? `stdout:\n${stdout.trim()}` : '',
+        ].filter(Boolean);
+
+        const errorLog = summaryLines.join('\n') || '(无错误日志)';
+        resolve({ errorLog, hasError });
+      });
+    } catch (error) {
+      const errorLog = [
+        'Unexpected error while preparing test runner.',
+        `Error: ${error.message}`,
+      ].join('\n');
+      resolve({ errorLog, hasError: true });
+    }
+  });
+}
 
 async function main() {
   const model = await askModelChoice();
@@ -26,13 +81,13 @@ async function main() {
     diff,
   ].join('\n');
 
-  const mockError = 'MockError: DevAgent MVP 启动时的示例错误日志，用于驱动 LangGraph 流程。';
+  const { errorLog: testErrorLog } = await runTests();
 
   await createCheckpoint();
 
   const finalState = await appGraph.invoke({
     context,
-    errorLog: mockError,
+    errorLog: testErrorLog,
     retryCount: 0,
     status: 'running',
     plan: null,
@@ -42,7 +97,7 @@ async function main() {
     console.log('⚠️ 检测到需要回滚，开始执行物理回滚...');
     await rollback();
     await addBlacklist(
-      finalState.errorLog || mockError,
+      finalState.errorLog || testErrorLog || 'LangGraph 触发回滚，但未提供错误日志。',
       'LangGraph 重试次数达到上限，触发自动回滚。',
     );
     console.log('✅ 已记录到黑名单，并完成回滚。');

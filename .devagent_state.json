@@ -8,5 +8,10 @@
     "errorLog": "MockError: DevAgent MVP 启动时的示例错误日志，用于驱动 LangGraph 流程。",
     "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
     "timestamp": "2026-02-27T09:16:07.406Z"
+  },
+  {
+    "errorLog": "MockError: DevAgent MVP 启动时的示例错误日志，用于驱动 LangGraph 流程。",
+    "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
+    "timestamp": "2026-02-27T09:22:44.403Z"
   }
 ]
