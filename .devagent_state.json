@@ -3,5 +3,10 @@
     "timestamp": "2026-02-27T08:41:15.521Z",
     "errorLog": "file:///Users/thiago/program/family/devagent-mvp/src/test.js:9\nconsole.log(undefinedFunction());\n        ^\nReferenceError: undefinedFunction is not defined\n    at file:///Users/thiago/program/family/devagent-mvp/src/test.js:9:9\n    at ModuleJob.run (node:internal/modules/esm/module_job:195:25)\n    at async ModuleLoader.import (node:internal/modules/esm/loader:337:24)\n    at async loadESM (node:internal/process/esm_loader:34:7)\n    at async handleMainPromise (node:internal/modules/run_main:106:12)\nNode.js v18.20.7",
     "reason": "触发熔断阈值"
+  },
+  {
+    "errorLog": "MockError: DevAgent MVP 启动时的示例错误日志，用于驱动 LangGraph 流程。",
+    "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
+    "timestamp": "2026-02-27T09:16:07.406Z"
   }
 ]
