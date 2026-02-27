@@ -23,5 +23,10 @@
     "errorLog": "Test exit code: 1\nstderr:\nnode:internal/process/esm_loader:40\n      internalBinding('errors').triggerUncaughtException(\n                                ^\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/thiago/program/family/devagent-mvp/src/src/test.js' imported from /Users/thiago/program/family/devagent-mvp/src/test.js\nDid you mean to import ./?\n    at new NodeError (node:internal/errors:405:5)\n    at finalizeResolution (node:internal/modules/esm/resolve:327:11)\n    at moduleResolve (node:internal/modules/esm/resolve:980:10)\n    at defaultResolve (node:internal/modules/esm/resolve:1206:11)\n    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:404:12)\n    at ModuleLoader.resolve (node:internal/modules/esm/loader:373:25)\n    at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:250:38)\n    at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)\n    at link (node:internal/modules/esm/module_job:75:36) {\n  url: 'file:///Users/thiago/program/family/devagent-mvp/src/src/test.js',\n  code: 'ERR_MODULE_NOT_FOUND'\n}\n\nNode.js v18.20.7",
     "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
     "timestamp": "2026-02-27T09:43:33.934Z"
+  },
+  {
+    "errorLog": "Test exit code: 1\nstderr:\nfile:///Users/thiago/program/family/devagent-mvp/src/test.js:10\nconsole.log(undefinedFunction());\n        ^\n\nReferenceError: undefinedFunction is not defined\n    at file:///Users/thiago/program/family/devagent-mvp/src/test.js:10:9\n    at ModuleJob.run (node:internal/modules/esm/module_job:195:25)\n    at async ModuleLoader.import (node:internal/modules/esm/loader:337:24)\n    at async loadESM (node:internal/process/esm_loader:34:7)\n    at async handleMainPromise (node:internal/modules/run_main:106:12)\n\nNode.js v18.20.7",
+    "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
+    "timestamp": "2026-02-27T09:49:45.860Z"
   }
 ]

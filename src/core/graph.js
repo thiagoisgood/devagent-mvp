@@ -2,6 +2,10 @@ import { askAI } from './llm.js';
 import { getBlacklist } from './memory.js';
 import { writeFile, access } from 'fs/promises';
 import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const INITIAL_STATE = {
   context: null,
@@ -12,6 +16,10 @@ const INITIAL_STATE = {
 };
 
 async function supervisor(state) {
+  if (state.status === 'success') {
+    return state;
+  }
+
   if (state.retryCount >= 3) {
     state.status = 'rollback';
     return state;
@@ -139,6 +147,17 @@ async function executor(state) {
 
       await writeFile(targetPath, code, 'utf8');
       console.log('\x1b[32m%s\x1b[0m', `✅ [Executor] 已成功覆写文件: ${targetPath}`);
+
+      try {
+        await execAsync(`node ${file}`);
+        state.errorLog = '';
+        state.status = 'success';
+        console.log('\x1b[32m%s\x1b[0m', '✅ [Validator] 验证通过！Bug 已修复！');
+      } catch (error) {
+        const errorText = error.stderr || error.message;
+        state.errorLog = errorText;
+        console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Validator] 修复无效，捕获到新报错...');
+      }
     } catch (error) {
       console.error('\x1b[31m%s\x1b[0m', '❌ [Executor] 写入文件失败：', error);
     }
