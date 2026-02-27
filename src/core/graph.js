@@ -167,6 +167,10 @@ const INITIAL_STATE = {
   retryCount: 0,
   status: "running",
   plan: null,
+  /** feature 模式下业务代码写入后置为 'need_tester'，驱动流转到 testerNode */
+  phase: null,
+  /** 刚写入的业务文件路径（如 sandbox/foo.js），供 Tester 生成同级 .test.js */
+  lastWrittenFile: null,
 };
 
 async function supervisor(state) {
@@ -577,10 +581,15 @@ async function executor(state) {
         `✅ [Executor] 已使用全量覆盖模式修复（或创建）文件: ${file}`,
       );
 
-      // Feature 模式下跳过内部 Validator，由外层 index.js 大闭环统一验证，避免内层耗尽重试导致无法流转
+      // Feature 模式：写入 .test.js 才视为完成；写入业务文件后流转给 Tester 生成测试再写回
       if (state.mode === "feature") {
         state.errorLog = "";
-        state.status = "success";
+        if (file.endsWith(".test.js")) {
+          state.status = "success";
+          return state;
+        }
+        state.phase = "need_tester";
+        state.lastWrittenFile = file;
         return state;
       }
 
@@ -677,10 +686,15 @@ async function executor(state) {
         `✅ [Executor] AST 手术成功！精准替换了 ${file} 中的 ${targetFunction} 函数。`,
       );
 
-      // Feature 模式下跳过内部 Validator，由外层 index.js 大闭环统一验证，避免内层耗尽重试导致无法流转
+      // Feature 模式：写入 .test.js 才视为完成；写入业务文件后流转给 Tester 生成测试再写回
       if (state.mode === "feature") {
         state.errorLog = "";
-        state.status = "success";
+        if (file.endsWith(".test.js")) {
+          state.status = "success";
+          return state;
+        }
+        state.phase = "need_tester";
+        state.lastWrittenFile = file;
         return state;
       }
 
@@ -724,6 +738,92 @@ async function executor(state) {
   return state;
 }
 
+/**
+ * Tester (QA) 节点：在 feature 模式下，业务代码写入后由本节点生成单元测试计划。
+ * 使用 node:test 与 node:assert，输出 replace_file 计划供 Executor 写入 .test.js 文件。
+ * @param {object} state - 图状态，需包含 lastWrittenFile、context、requirement
+ * @returns {Promise<object>} 更新后的 state（含 plan）
+ */
+async function testerNode(state) {
+  const baseFile = state.lastWrittenFile;
+  if (!baseFile || typeof baseFile !== "string") {
+    console.warn(
+      chalk.yellow("⚠️ [Tester] 缺少 lastWrittenFile，无法生成测试计划，跳过。"),
+    );
+    state.plan = null;
+    return state;
+  }
+
+  // 同目录、同名 + .test.js，例如 sandbox/foo.js → sandbox/foo.test.js
+  const baseDir = path.dirname(baseFile);
+  const baseName = path.basename(baseFile, path.extname(baseFile));
+  const suggestedTestPath =
+    baseDir ? `${baseDir}/${baseName}.test.js` : `${baseName}.test.js`;
+
+  const sys = [
+    "你是一个极其严苛的资深 QA 测试工程师。开发者刚刚根据需求完成了业务代码的编写。",
+    "请你使用 Node.js 原生的 node:test 和 node:assert 模块，为该文件编写极其完善的单元测试（必须包含边缘情况测试）。",
+    "",
+    "【输出格式的强制要求】",
+    "你只能输出一个 JSON 对象，不能包含 Markdown 代码块或多余文字。",
+    "格式必须严格为：",
+    "{",
+    '  "action": "replace_file",',
+    '  "thought": "测试用例设计思路（简要说明覆盖了哪些场景与边界）",',
+    `  "file": "测试文件相对路径，必须与业务文件同目录且命名为 原文件名.test.js，例如 \\"${suggestedTestPath}\\""`,
+    '  "new_code": "完整的测试文件代码，使用 require(\\"node:test\\") 和 require(\\"node:assert\\")，可直接被 node --test 执行"',
+    "}",
+    "",
+    "【路径守则】file 必须是相对路径，不能以 / 开头。",
+  ].join("\n");
+
+  const usr = [
+    `刚写入的业务文件路径: ${baseFile}`,
+    "",
+    `当前项目上下文: ${state.context || "(无)"}`,
+    "",
+    `用户需求摘要: ${state.requirement || "(无)"}`,
+  ].join("\n");
+
+  const llmResult = await askAI(sys, usr, "qwen");
+  let plan = llmResult;
+
+  if (typeof plan === "string") {
+    const trimmed = plan.trim();
+    try {
+      plan = JSON.parse(trimmed);
+    } catch (error) {
+      console.warn(
+        chalk.yellow("⚠️ [Tester] 无法解析 LLM 返回的 JSON，原始内容："),
+        trimmed?.slice(0, 200),
+      );
+      state.plan = null;
+      return state;
+    }
+  }
+
+  if (plan && typeof plan === "object" && plan.action === "replace_file") {
+    if (!plan.file || !plan.new_code) {
+      console.warn(
+        chalk.yellow("⚠️ [Tester] 返回的 plan 缺少 file 或 new_code，跳过。"),
+      );
+      state.plan = null;
+      return state;
+    }
+    // 强制测试文件路径为同目录的 .test.js，避免模型乱写路径
+    const dir = path.dirname(baseFile);
+    const name = path.basename(baseFile, path.extname(baseFile));
+    plan.file = dir ? `${dir}/${name}.test.js` : `${name}.test.js`;
+  }
+
+  state.plan = plan;
+  console.log(
+    chalk.cyan("🧪 [Tester] 已生成单元测试计划，将写入:"),
+    state.plan?.file || "(无)",
+  );
+  return state;
+}
+
 const workflow = {
   compile() {
     return {
@@ -731,7 +831,13 @@ const workflow = {
         const state = { ...INITIAL_STATE, ...initialState };
 
         while (state.status === "running") {
-          await supervisor(state);
+          // feature 模式下业务代码写入后由 executor 置 phase=need_tester，此处流转到 Tester
+          if (state.phase === "need_tester") {
+            await testerNode(state);
+            state.phase = null;
+          } else {
+            await supervisor(state);
+          }
           if (state.status === "rollback") {
             break;
           }

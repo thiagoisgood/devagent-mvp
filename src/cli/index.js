@@ -47,15 +47,23 @@ async function main() {
     userRequirement = (requirement && requirement.trim()) || "";
   }
 
+  const verifyCommandMessage =
+    taskMode === "feature"
+      ? "请输入验证命令（直接回车将默认使用 node --test 执行 AI 生成的测试用例）："
+      : "请输入用于验证结果的终端命令（如 node test.js 或 npm test）：";
+
   const { verifyCommand: verifyCommandRaw } = await inquirer.prompt([
     {
       type: "input",
       name: "verifyCommand",
-      message: "请输入用于验证结果的终端命令（如 node test.js 或 npm test）：",
+      message: verifyCommandMessage,
     },
   ]);
 
-  const verifyCommand = (verifyCommandRaw && verifyCommandRaw.trim()) || "";
+  let verifyCommand = (verifyCommandRaw && verifyCommandRaw.trim()) || "";
+  if (taskMode === "feature" && !verifyCommand) {
+    verifyCommand = "node --test";
+  }
 
   if (!verifyCommand) {
     console.log(
