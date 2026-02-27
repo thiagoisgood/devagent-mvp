@@ -15,6 +15,24 @@ import {
 
 const execAsync = promisify(exec);
 
+function renderSecurityBlockPanel() {
+  const panelWidth = 60;
+  const title = ' SECURITY FIREWALL BLOCKED ';
+  const paddedTitle = title.padEnd(panelWidth, ' ');
+  const border = ''.padEnd(panelWidth, ' ');
+
+  console.log(chalk.bgRed.white.bold(border));
+  console.log(chalk.bgRed.white.bold(paddedTitle));
+  console.log(chalk.bgRed.white.bold(border));
+  console.log(
+    chalk.bgRed.white.bold(
+      ' 你的操作已被 DevAgent 安全铁幕强制拦截，请立即更换安全策略。 ',
+    ),
+  );
+  console.log(chalk.bgRed.white.bold(border));
+  console.log('');
+}
+
 function formatPlanDebug(plan) {
   try {
     return JSON.stringify(plan, null, 2);
@@ -335,6 +353,7 @@ async function executor(state) {
       if (error instanceof SecurityError) {
         state.errorLog =
           '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
+        renderSecurityBlockPanel();
         state.retryCount += 1;
         return state;
       }
@@ -419,6 +438,7 @@ async function executor(state) {
         if (error instanceof SecurityError) {
           state.errorLog =
             '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
+          renderSecurityBlockPanel();
           state.retryCount += 1;
           return state;
         }
@@ -489,6 +509,7 @@ async function executor(state) {
         if (error instanceof SecurityError) {
           state.errorLog =
             '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
+          renderSecurityBlockPanel();
           state.retryCount += 1;
           return state;
         }
