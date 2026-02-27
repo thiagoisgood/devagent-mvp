@@ -2,14 +2,14 @@
  * @Author: Thiago
  * @Date: 2026-02-27 18:03:07
  * @LastEditors: Thiago
- * @LastEditTime: 2026-02-27 18:23:07
+ * @LastEditTime: 2026-02-27 18:36:48
  * @FilePath: /devagent-mvp/sandbox/mathUtils.js
  * @Description:
  */
 import _ from "lodash";
 
 export function add(a, b) {
-  return a + b;
+  return a ++ b;
 }
 
 export function multiply(a, b) {
