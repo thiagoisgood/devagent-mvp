@@ -86,7 +86,7 @@ function renderExecutionPlan(plan) {
     if (typeof parsed.thought === 'string' && parsed.thought.trim()) {
       lines.push(`${chalk.bold.white('理由:')} ${chalk.dim(parsed.thought.trim())}`);
     }
-  } else if (isEditFunction && typeof parsed.file === 'string') {
+  } else if ((isEditFunction || isReplaceFile) && typeof parsed.file === 'string') {
     const isFunctionLevel =
       typeof parsed.target_function === 'string' &&
       typeof parsed.new_code === 'string';
@@ -473,7 +473,16 @@ async function executor(state) {
         '❌ [Executor] replace_file 写入文件失败：',
         error,
       );
+      state.errorLog =
+        error?.message ||
+        'replace_file 执行过程中发生未知错误，请在下一轮重试时重新规划修复方案。';
     }
+
+    if (state.status !== 'success') {
+      state.retryCount += 1;
+    }
+
+    return state;
   }
 
   // 默认或 action === edit_function / edit_code 走原有函数级修复分支
