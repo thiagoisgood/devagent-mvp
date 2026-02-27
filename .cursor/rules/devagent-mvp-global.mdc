@@ -15,13 +15,13 @@ alwaysApply: true
 
 ## 2. 架构模式与代码修改规则 (Architecture & Code Modification)
 - **双模修 Bug 策略**:
-  - 遇到逻辑错误时，优先使用 AST 微创手术 (`edit_function`)。
-  - 只要报错日志中包含 `SyntaxError`，必须立刻降级为全量覆盖 (`replace_file`)。
+  - 遇到逻辑错误时，优先使用语义局部替换 (`patch_code`)，由 LLM 提供精确的 search_block/replace_block，不依赖 AST 解析器。
+  - 只要报错日志中包含 `SyntaxError`，或 patch 失败（找不到目标块），必须立刻降级为全量覆盖 (`replace_file`)。
 - **严禁“偷工减料”**: 当要求你全量覆盖 (`replace_file`) 某个文件时，**绝对不允许**使用 `// ... existing code ...` 这样的注释占位符！你必须输出完整的、可直接运行的所有代码。
 - **安全铁幕不容触碰**: 任何涉及 `rm -rf`, `drop`, 读写 `.env` 等高危操作的设计，必须经过 `/src/security/firewall.js` 规则评估。
 
 ## 3. 文档与注释规范 (Documentation & Comments)
-- **JSDoc 强制要求**: 每一个核心模块导出的函数（如 `askAI`, `supervisorNode`, `replaceFunction`），必须包含规范的 JSDoc 注释，说明清楚入参、返回值和核心功能。
+- **JSDoc 强制要求**: 每一个核心模块导出的函数（如 `askAI`, `supervisorNode`, `patchFile`），必须包含规范的 JSDoc 注释，说明清楚入参、返回值和核心功能。
 - **业务逻辑注释**: 在复杂的逻辑分支（如状态机流转、AST 节点匹配）上方，必须用中文写明“为什么这么做 (Why)”，而不仅是“做了什么 (What)”。
 - **控制台日志 (Console Logs)**: 保持终端输出的高级感与整洁感。
   - 必须使用 `chalk` 上色。
