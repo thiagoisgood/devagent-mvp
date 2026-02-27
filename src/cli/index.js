@@ -2,6 +2,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import chalk from 'chalk';
 import { createCheckpoint, rollback } from '../security/gitRollback.js';
 import { appGraph } from '../core/graph.js';
 import { getStagedDiff, getProjectTree } from '../core/contextFetcher.js';
@@ -93,14 +94,81 @@ async function main() {
     plan: null,
   });
 
+  const retriesUsed = finalState.retryCount ?? 0;
+
   if (finalState.status === 'rollback') {
-    console.log('⚠️ 检测到需要回滚，开始执行物理回滚...');
+    console.log(
+      chalk.bgRed.black.bold(
+        ' ROLLBACK INITIATED '.padEnd(60, ' '),
+      ),
+    );
+    console.log(
+      chalk.redBright(
+        '发生问题，DevAgent 正在将您的工作区恢复到安全状态。',
+      ),
+    );
+    console.log('');
+    console.log(
+      `${chalk.bold.white('状态:')} ${chalk.red.bold('✖ 已回滚')}`,
+    );
+    console.log(
+      `${chalk.bold.white('重试次数:')} ${chalk.red(
+        `${retriesUsed} 次（已达到上限）`,
+      )}`,
+    );
+    console.log(
+      `${chalk.bold.white('原因:')} ${chalk.red(
+        finalState.errorLog ||
+          testErrorLog ||
+          'LangGraph 触发回滚，但未提供错误日志。',
+      )}`,
+    );
+    console.log('');
+    console.log(chalk.bold.white('后续建议:'));
+    console.log(
+      `  ${chalk.yellow('▸')} 检查上方错误信息，修复代码或配置问题。`,
+    );
+    console.log(
+      `  ${chalk.yellow('▸')} 确认工作区状态正常后，可再次运行 DevAgent。`,
+    );
+    console.log(
+      chalk.bgRed.black.bold(''.padEnd(60, ' ')),
+    );
+
     await rollback();
     await addBlacklist(
       finalState.errorLog || testErrorLog || 'LangGraph 触发回滚，但未提供错误日志。',
       'LangGraph 重试次数达到上限，触发自动回滚。',
     );
-    console.log('✅ 已记录到黑名单，并完成回滚。');
+  } else if (finalState.status === 'success') {
+    console.log(
+      chalk.bold.cyan(
+        '┌──────────────── DevAgent Run Complete ────────────────┐',
+      ),
+    );
+    console.log(
+      chalk.bold.cyan(
+        '│  ✨ DevAgent 运行完成                                │',
+      ),
+    );
+    console.log(
+      chalk.bold.cyan(
+        '└──────────────────────────────────────────────────────┘',
+      ),
+    );
+    console.log(
+      `${chalk.bold.white('状态:')} ${chalk.bold.green('✔ Success')}`,
+    );
+    console.log(
+      `${chalk.bold.white('重试次数:')} ${chalk.green(
+        `${retriesUsed} 次`,
+      )}`,
+    );
+    console.log('');
+    console.log(chalk.bold.white('结语:'));
+    console.log(
+      `  ${chalk.bold.cyan('✨ DevAgent 任务圆满完成，期待下次为您服务！')}`,
+    );
   } else {
     console.log('✅ 流程结束，未触发回滚。');
   }

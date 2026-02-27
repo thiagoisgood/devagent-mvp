@@ -1,27 +1,100 @@
 import { askAI } from './llm.js';
 import { getBlacklist } from './memory.js';
-import inquirer from 'inquirer';
 import { access } from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import chalk from 'chalk';
 import { replaceFunction } from './astEditor.js';
+import { askCommandPermission } from '../cli/ui.js';
 
 const execAsync = promisify(exec);
 
-async function askCommandPermission(command) {
-  const message = `\x1b[33m[Security]\x1b[0m AI 申请执行终端命令: ${command}，是否允许？`;
+function formatPlanDebug(plan) {
+  try {
+    return JSON.stringify(plan, null, 2);
+  } catch {
+    return String(plan);
+  }
+}
 
-  const { confirmed } = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'confirmed',
-      message,
-      default: true,
-    },
-  ]);
+function renderExecutionPlan(plan) {
+  let parsed = plan;
 
-  return confirmed;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed.trim());
+    } catch {
+      const header = chalk.bold.cyan('┌──────────────── DevAgent 执行计划 ────────────────┐');
+      const title = chalk.bold.cyan('│  DevAgent Execution Plan (raw string)            │');
+      const footer = chalk.bold.cyan('└──────────────────────────────────────────────────┘');
+      const body = chalk.dim(parsed);
+      return [header, title, footer, body].join('\n');
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    const header = chalk.bold.cyan('┌──────────────── DevAgent 执行计划 ────────────────┐');
+    const title = chalk.bold.cyan('│  DevAgent Execution Plan (unstructured)          │');
+    const footer = chalk.bold.cyan('└──────────────────────────────────────────────────┘');
+    const body = chalk.dim(formatPlanDebug(parsed));
+    return [header, title, footer, body].join('\n');
+  }
+
+  const action = parsed.action || 'unknown';
+  const isRunCommand = action === 'run_command';
+  const isEditCode = action === 'edit_code' || !action;
+
+  const header = chalk.bold.cyan('┌──────────────── DevAgent 执行计划 ────────────────┐');
+  const title = chalk.bold.cyan('│  DevAgent Execution Plan                          │');
+  const footer = chalk.bold.cyan('└──────────────────────────────────────────────────┘');
+
+  const lines = [];
+  lines.push(header);
+  lines.push(title);
+  lines.push(footer);
+  lines.push('');
+
+  if (isRunCommand && typeof parsed.command === 'string') {
+    lines.push(`${chalk.bold.white('动作:')} ${chalk.bold.blue('run_command')}`);
+    lines.push(`${chalk.bold.white('命令:')} ${chalk.cyan(parsed.command)}`);
+    if (typeof parsed.thought === 'string' && parsed.thought.trim()) {
+      lines.push(`${chalk.bold.white('理由:')} ${chalk.dim(parsed.thought.trim())}`);
+    }
+  } else if (
+    isEditCode &&
+    typeof parsed.file === 'string' &&
+    typeof parsed.target_function === 'string'
+  ) {
+    lines.push(`${chalk.bold.white('动作:')} ${chalk.bold.magenta('edit_code')}`);
+    lines.push(`${chalk.bold.white('文件:')} ${chalk.cyan(parsed.file)}`);
+    lines.push(
+      `${chalk.bold.white('函数:')} ${chalk.yellow(parsed.target_function)}`,
+    );
+    if (typeof parsed.thought === 'string' && parsed.thought.trim()) {
+      lines.push(`${chalk.bold.white('理由:')} ${chalk.dim(parsed.thought.trim())}`);
+    }
+    if (typeof parsed.new_code === 'string') {
+      const preview = parsed.new_code.split('\n').slice(0, 3).join('\n');
+      lines.push('');
+      lines.push(chalk.bold.white('代码预览:'));
+      lines.push(chalk.gray(preview));
+      const moreLines = parsed.new_code.split('\n').length - 3;
+      if (moreLines > 0) {
+        lines.push(chalk.dim(`… 还有 ${moreLines} 行`));
+      }
+    }
+  } else {
+    lines.push(
+      chalk.yellow(
+        '⚠️ 未能识别标准计划结构，以下为原始内容（已格式化）：',
+      ),
+    );
+    lines.push('');
+    lines.push(chalk.dim(formatPlanDebug(parsed)));
+  }
+
+  return lines.join('\n');
 }
 
 const INITIAL_STATE = {
@@ -129,8 +202,7 @@ async function supervisor(state) {
 }
 
 async function executor(state) {
-  console.log('🧭 [Executor] 本轮执行计划:');
-  console.log(state.plan);
+  console.log(renderExecutionPlan(state.plan));
 
   let plan = state.plan;
 
@@ -202,7 +274,7 @@ async function executor(state) {
 
   if (!action) {
     console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 action 字段，无法路由执行。');
-    console.warn('当前 plan 内容为:', plan);
+    console.warn('当前 plan 内容为:\n', formatPlanDebug(plan));
     state.retryCount += 1;
     return state;
   }
@@ -255,7 +327,7 @@ async function executor(state) {
   // 默认或 action === 'edit_code' 走原有代码修复分支
   if (!file || !targetFunction || !newCode) {
     console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 file、target_function 或 new_code 字段，跳过物理覆写。');
-    console.warn('当前 plan 内容为:', plan);
+    console.warn('当前 plan 内容为:\n', formatPlanDebug(plan));
   } else {
     try {
       const cwd = process.cwd();
