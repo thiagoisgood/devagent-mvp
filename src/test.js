@@ -1,10 +1,8 @@
-/*
- * @Author: Thiago
- * @Date: 2026-02-27 17:21:55
- * @LastEditors: Thiago
- * @LastEditTime: 2026-02-27 17:45:01
- * @FilePath: /devagent-mvp/src/test.js
- * @Description:
- */
+import { test } from "node:test";
+import assert from "node:assert";
+import { add } from "../sandbox/mathUtils.js";
 
-console.log(undefinedFunction());
+test("add should return a + b", () => {
+  const result = add(2, 3);
+  assert.strictEqual(result, 5);
+});

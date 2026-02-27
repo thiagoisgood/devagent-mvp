@@ -1,9 +1,10 @@
 import { askAI } from './llm.js';
 import { getBlacklist } from './memory.js';
-import { writeFile, access } from 'fs/promises';
+import { access } from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { replaceFunction } from './astEditor.js';
 
 const execAsync = promisify(exec);
 
@@ -28,24 +29,25 @@ async function supervisor(state) {
   const blacklist = await getBlacklist();
 
   const sys = [
-    '你是一台**无情的代码修复机器**，只负责根据错误日志和项目上下文直接给出下一步「代码覆写」方案。',
-    '你的唯一任务是：决定要改写哪个文件，并给出该文件**完整且已经修复后的代码**。',
+    '你是一台**无情的代码修复机器**，只负责根据错误日志和项目上下文直接给出下一步「代码手术」方案。',
+    '你的唯一任务是：决定要改写哪个文件中的哪一个函数，并给出该函数**完整且已经修复后的代码块**。',
     '',
     '【输出格式的强制要求】',
-    '- 你**只能**输出一个 JSON 对象，且**必须且只允许**包含以下三个字段：',
+    '- 你**只能**输出一个 JSON 对象，且**必须且只允许**包含以下四个字段：',
     '  - thought: string，用于简短说明你根据错误日志做出的思考与决策过程（不超过 3 句）。',
     '  - file: string，需要修改的相对文件路径，例如 "src/test.js" 或 "test.js"。',
-    '  - code: string，修改后的该文件【完整】代码内容（不是片段，而是整个文件）。',
+    '  - target_function: string，需要修改的函数名称（必须极其准确，例如 "handleError" 或 "createServer"）。',
+    '  - new_code: string，修复后的该函数完整代码块（不要带 markdown 标记，且**绝对不要**包含整个文件的其他代码）。',
     '',
     '【绝对禁止的行为】',
-    '- 不允许输出除 thought、file、code 之外的任何字段。',
-    '- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、action、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content 等一切无关字段。',
+    '- 不允许输出除 thought、file、target_function、new_code 之外的任何字段。',
+    '- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、action、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。',
     '- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。',
     '- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。',
     '',
     '【再提醒一次】',
-    '- 你是一个**冷酷的代码修复执行大脑**，只输出一个纯粹的 JSON 对象，且键名严格为 thought、file、code。',
-    '- 如果你输出了多余字段、Markdown 包裹、或任意非 JSON 垃圾内容，将会被视为**严重错误**。',
+    '- 你是一个**冷酷的代码修复执行大脑**，只输出一个纯粹的 JSON 对象，且键名严格为 thought、file、target_function、new_code。',
+    '- 如果你输出了多余字段、Markdown 包裹、输出了整个文件的代码，或任意非 JSON 垃圾内容，将会被视为**严重错误**。',
     '',
     '现在，请根据给定的错误日志、项目上下文和黑名单，严格按上述要求输出 JSON 对象。',
   ].join('\n');
@@ -101,27 +103,47 @@ async function executor(state) {
   }
 
   let file;
-  let code;
+  let targetFunction;
+  let newCode;
 
   if (plan && typeof plan === 'object') {
-    if (typeof plan.file === 'string' && typeof plan.code === 'string') {
-      file = plan.file;
-      code = plan.code;
-    } else {
-      // 兼容某些模型可能包了一层的情况，例如 { result: { file, code, thought } }
+    const extractPlan = (value) => {
+      if (
+        value &&
+        typeof value === 'object' &&
+        typeof value.file === 'string' &&
+        typeof value.target_function === 'string' &&
+        typeof value.new_code === 'string'
+      ) {
+        return {
+          file: value.file,
+          targetFunction: value.target_function,
+          newCode: value.new_code,
+        };
+      }
+      return null;
+    };
+
+    let extracted = extractPlan(plan);
+
+    if (!extracted) {
+      // 兼容某些模型可能包了一层的情况，例如 { result: { file, target_function, new_code, thought } }
       for (const key of Object.keys(plan)) {
         const value = plan[key];
-        if (value && typeof value === 'object' && typeof value.file === 'string' && typeof value.code === 'string') {
-          file = value.file;
-          code = value.code;
+        extracted = extractPlan(value);
+        if (extracted) {
           break;
         }
       }
     }
+
+    if (extracted) {
+      ({ file, targetFunction, newCode } = extracted);
+    }
   }
 
-  if (!file || !code) {
-    console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 file 或 code 字段，跳过物理覆写。');
+  if (!file || !targetFunction || !newCode) {
+    console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 file、target_function 或 new_code 字段，跳过物理覆写。');
     console.warn('当前 plan 内容为:', plan);
   } else {
     try {
@@ -145,8 +167,11 @@ async function executor(state) {
         }
       }
 
-      await writeFile(targetPath, code, 'utf8');
-      console.log('\x1b[32m%s\x1b[0m', `✅ [Executor] 已成功覆写文件: ${targetPath}`);
+      await replaceFunction(targetPath, targetFunction, newCode);
+      console.log(
+        '\x1b[32m%s\x1b[0m',
+        `✅ [Executor] AST 手术成功！精准替换了 ${file} 中的 ${targetFunction} 函数。`,
+      );
 
       try {
         await execAsync(`node ${file}`);
