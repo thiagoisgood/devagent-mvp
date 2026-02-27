@@ -9,7 +9,7 @@
 import _ from "lodash";
 
 export function add(a, b) {
-  return _.add(a, b);
+  return a + b;
 }
 
 export function multiply(a, b) {
