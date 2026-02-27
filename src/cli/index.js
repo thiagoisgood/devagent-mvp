@@ -124,6 +124,16 @@ async function main() {
         lastFinalState.errorLog) ||
       "";
 
+    // 靶向测试隔离：若存在本次生成的测试路径且验证命令为默认 node --test，则锁定为单文件执行，避免全局扫描污染
+    if (lastFinalState.testTarget && verifyCommand === "node --test") {
+      verifyCommand = `node --test ${lastFinalState.testTarget}`;
+      console.log(
+        chalk.blue(
+          `🎯 [隔离执行] 已将测试范围锁定为单一文件: ${lastFinalState.testTarget}`,
+        ),
+      );
+    }
+
     if (
       typeof lastFinalState.errorLog === "string" &&
       lastFinalState.errorLog.includes("[致命拦截]")

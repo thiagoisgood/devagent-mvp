@@ -171,6 +171,8 @@ const INITIAL_STATE = {
   phase: null,
   /** 刚写入的业务文件路径（如 sandbox/foo.js），供 Tester 生成同级 .test.js */
   lastWrittenFile: null,
+  /** 本次生成的测试文件路径（如 sandbox/foo.test.js），供外层 CLI 做靶向 node --test 隔离 */
+  testTarget: null,
 };
 
 async function supervisor(state) {
@@ -817,6 +819,9 @@ async function testerNode(state) {
   }
 
   state.plan = plan;
+  if (state.plan?.file) {
+    state.testTarget = state.plan.file;
+  }
   console.log(
     chalk.cyan("🧪 [Tester] 已生成单元测试计划，将写入:"),
     state.plan?.file || "(无)",
