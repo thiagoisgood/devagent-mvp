@@ -1,6 +1,7 @@
 import { askAI } from './llm.js';
 import { getBlacklist } from './memory.js';
-import { writeFile } from 'fs/promises';
+import { writeFile, access } from 'fs/promises';
+import path from 'path';
 
 const INITIAL_STATE = {
   context: null,
@@ -77,14 +78,67 @@ async function executor(state) {
   console.log('🧭 [Executor] 本轮执行计划:');
   console.log(state.plan);
 
-  const { file, code } = state.plan || {};
+  let plan = state.plan;
+
+  // 防御性处理：如果 LLM 返回的是字符串，再尝试解析一次
+  if (typeof plan === 'string') {
+    try {
+      plan = JSON.parse(plan.trim());
+    } catch (error) {
+      console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] state.plan 是字符串且无法解析为 JSON，跳过物理覆写。');
+      console.warn(plan);
+      state.retryCount += 1;
+      return state;
+    }
+  }
+
+  let file;
+  let code;
+
+  if (plan && typeof plan === 'object') {
+    if (typeof plan.file === 'string' && typeof plan.code === 'string') {
+      file = plan.file;
+      code = plan.code;
+    } else {
+      // 兼容某些模型可能包了一层的情况，例如 { result: { file, code, thought } }
+      for (const key of Object.keys(plan)) {
+        const value = plan[key];
+        if (value && typeof value === 'object' && typeof value.file === 'string' && typeof value.code === 'string') {
+          file = value.file;
+          code = value.code;
+          break;
+        }
+      }
+    }
+  }
 
   if (!file || !code) {
     console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 file 或 code 字段，跳过物理覆写。');
+    console.warn('当前 plan 内容为:', plan);
   } else {
     try {
-      await writeFile(file, code, 'utf8');
-      console.log('\x1b[32m%s\x1b[0m', `✅ [Executor] 已成功覆写文件: ${file}`);
+      const cwd = process.cwd();
+      const directPath = path.resolve(cwd, file);
+      const srcFallbackPath = path.resolve(cwd, 'src', file);
+
+      let targetPath = directPath;
+
+      try {
+        await access(directPath);
+      } catch {
+        // 如果当前工作目录下不存在该文件，但 src 下存在同名文件，则优先覆写 src 下的文件
+        try {
+          await access(srcFallbackPath);
+          targetPath = srcFallbackPath;
+          console.log('\x1b[36m%s\x1b[0m', `ℹ️ [Executor] 未找到 ${file}，改为覆写 src/${file}`);
+        } catch {
+          // 两个路径都不存在，则按原始计划在 directPath 创建/覆写
+          console.log('\x1b[36m%s\x1b[0m', `ℹ️ [Executor] 文件不存在，将在工作目录创建/覆写: ${directPath}`);
+        }
+      }
+
+      await writeFile(targetPath, code, 'utf8');
+      console.log('\x1b[32m%s\x1b[0m', `✅ [Executor] 已成功覆写文件: ${targetPath}`);
     } catch (error) {
       console.error('\x1b[31m%s\x1b[0m', '❌ [Executor] 写入文件失败：', error);
     }
