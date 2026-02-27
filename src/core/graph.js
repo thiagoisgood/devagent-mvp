@@ -1,6 +1,6 @@
 import { askAI } from './llm.js';
 import { getBlacklist } from './memory.js';
-import { access } from 'fs/promises';
+import { access, writeFile } from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -43,7 +43,9 @@ function renderExecutionPlan(plan) {
 
   const action = parsed.action || 'unknown';
   const isRunCommand = action === 'run_command';
-  const isEditCode = action === 'edit_code' || !action;
+  const isEditFunction =
+    action === 'edit_function' || action === 'edit_code' || !action;
+  const isReplaceFile = action === 'replace_file';
 
   const header = chalk.bold.cyan('┌──────────────── DevAgent 执行计划 ────────────────┐');
   const title = chalk.bold.cyan('│  DevAgent Execution Plan                          │');
@@ -61,16 +63,27 @@ function renderExecutionPlan(plan) {
     if (typeof parsed.thought === 'string' && parsed.thought.trim()) {
       lines.push(`${chalk.bold.white('理由:')} ${chalk.dim(parsed.thought.trim())}`);
     }
-  } else if (
-    isEditCode &&
-    typeof parsed.file === 'string' &&
-    typeof parsed.target_function === 'string'
-  ) {
-    lines.push(`${chalk.bold.white('动作:')} ${chalk.bold.magenta('edit_code')}`);
+  } else if (isEditFunction && typeof parsed.file === 'string') {
+    const isFunctionLevel =
+      typeof parsed.target_function === 'string' &&
+      typeof parsed.new_code === 'string';
+
+    if (isReplaceFile || !isFunctionLevel) {
+      lines.push(
+        `${chalk.bold.white('动作:')} ${chalk.bold.magenta('replace_file')}`,
+      );
+    } else {
+      lines.push(
+        `${chalk.bold.white('动作:')} ${chalk.bold.magenta('edit_function')}`,
+      );
+    }
+
     lines.push(`${chalk.bold.white('文件:')} ${chalk.cyan(parsed.file)}`);
-    lines.push(
-      `${chalk.bold.white('函数:')} ${chalk.yellow(parsed.target_function)}`,
-    );
+    if (isFunctionLevel) {
+      lines.push(
+        `${chalk.bold.white('函数:')} ${chalk.yellow(parsed.target_function)}`,
+      );
+    }
     if (typeof parsed.thought === 'string' && parsed.thought.trim()) {
       lines.push(`${chalk.bold.white('理由:')} ${chalk.dim(parsed.thought.trim())}`);
     }
@@ -119,36 +132,48 @@ async function supervisor(state) {
 
   const sys = [
     '你是一台**无情的 DevAgent Supervisor**，根据错误日志和项目上下文，为下游执行器规划下一步「行动方案」。',
-    '现在你拥有两种武器，可以在每一轮只选择其中一种：',
+    '现在你拥有三种武器，可以在每一轮只选择其中一种：',
     '',
-    '【武器 1：edit_code（改代码）】',
-    '- 使用场景：当你判断错误主要来源于代码逻辑 / 类型问题 / 函数实现错误时。',
-    '- 你的任务是：决定要改写哪个文件中的哪一个函数，并给出该函数**完整且已经修复后的代码块**。',
+    '【武器 1：edit_function（微创函数级手术）】',
+    '- 使用场景：当你判断错误主要来源于代码逻辑 / 类型问题 / 函数实现错误，且源文件本身**没有 SyntaxError（语法错误）**时。',
+    '- 你的任务是：决定要改写哪个文件中的哪一个函数，并给出该函数**完整且已经修复后的代码块**（只包含该函数本身的代码，不要带上整个文件）。',
     '',
-    '【武器 2：run_command（执行终端命令）】',
+    '【武器 2：replace_file（全量覆盖文件）】',
+    '- 【极其重要】当错误日志中明确存在 SyntaxError（语法错误），或者你预判 AST 解析器可能会因为语法错误而崩溃时，**必须使用此动作！**',
+    '- 你的任务是：给出需要修复的文件路径 file，以及该文件**完整且已经修复后的所有代码** new_code，用于进行全量覆盖写入。',
+    '',
+    '【武器 3：run_command（执行终端命令）】',
     '- 使用场景：当你判断错误主要来源于缺少 npm 依赖、需要创建文件夹、缺少构建产物、依赖未安装、需要查看系统环境（例如 node 版本 / npm 版本）等「环境 / DevOps」问题时。',
     '- 你的任务是：给出一条需要在终端中执行的命令（例如 "npm install lodash"、"mkdir -p sandbox"、"node -v" 等）。',
     '',
-    '【手术铁律（仅对 edit_code 生效）】',
+    '【手术铁律（仅对 edit_function / replace_file 生效）】',
     '- 除非报错明确指出测试文件语法错误，否则你【绝对优先】修改源业务代码文件（例如 "sandbox/mathUtils.js"、"src/core/xxx.js"），而不是去修改测试文件（例如 "test.js"、"src/test.js"）。',
-    '- 你提供的 target_function 必须是该文件中真实存在的、标准的函数声明名称（例如 "add"、"multiply"、"handleError"、"createServer"）。绝对不要臆造测试块名称（例如 "test_add"、"should_add"、"add_should_return_sum" 等）。',
+    '- 在 edit_function 模式下，你提供的 target_function 必须是该文件中真实存在的、标准的函数声明名称（例如 "add"、"multiply"、"handleError"、"createServer"）。绝对不要臆造测试块名称（例如 "test_add"、"should_add"、"add_should_return_sum" 等）。',
     '【导出守则】如果你修改的函数在原文件中带有 export 或 export const 关键字，你输出的 new_code 必须原封不动地带上这些导出声明，绝不能丢失！',
     '【路径守则】你返回的 file 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
     '',
-    '【输出格式的强制要求（双模指令）】',
+    '【输出格式的强制要求（三模指令）】',
     '- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。',
-    '- 该 JSON 对象必须包含一个字段 action，且只能是 "edit_code" 或 "run_command" 之一。',
+    '- 该 JSON 对象必须包含一个字段 action，且只能是 "edit_function"、"replace_file" 或 "run_command" 之一。',
     '',
-    '当你选择武器 1（改代码）时，输出格式必须**严格**为：',
+    '当你选择 edit_function（微创手术）时，输出格式必须**严格**为：',
     '{',
-    '  "action": "edit_code",',
+    '  "action": "edit_function",',
     '  "thought": "string，简要说明你根据错误日志的分析与决策（不超过 3 句）",',
     '  "file": "string，相对文件路径，例如 \\"sandbox/mathUtils.js\\" 或 \\"src/core/xxx.js\\"",',
     '  "target_function": "string，需要修改的函数名称，例如 \\"add\\"、\\"handleError\\"",',
     '  "new_code": "string，修复后的该函数完整代码块（不要带 markdown 标记，且绝对不要包含整个文件的其他代码）"',
     '}',
     '',
-    '当你选择武器 2（执行终端命令）时，输出格式必须**严格**为：',
+    '当你选择 replace_file（全量覆盖）时，输出格式必须**严格**为：',
+    '{',
+    '  "action": "replace_file",',
+    '  "thought": "string，简要说明你为什么需要进行全量覆盖（不超过 3 句），通常与 SyntaxError 或 AST 解析失败相关",',
+    '  "file": "string，相对文件路径，例如 \\"sandbox/mathUtils.js\\" 或 \\"src/core/xxx.js\\"",',
+    '  "new_code": "string，修复后的该文件完整代码（不要带 markdown 标记，必须是可以被 Node.js 正常解析执行的完整文件内容）"',
+    '}',
+    '',
+    '当你选择 run_command（执行终端命令）时，输出格式必须**严格**为：',
     '{',
     '  "action": "run_command",',
     '  "thought": "string，简要说明你为什么需要执行这条命令（不超过 3 句）",',
@@ -255,7 +280,19 @@ async function executor(state) {
         if (typeof extracted.command === 'string') {
           command = extracted.command;
         }
-      } else if (action === 'edit_code' || !action) {
+      } else if (action === 'replace_file') {
+        if (
+          typeof extracted.file === 'string' &&
+          typeof extracted.new_code === 'string'
+        ) {
+          file = extracted.file;
+          newCode = extracted.new_code;
+        }
+      } else if (
+        action === 'edit_function' ||
+        action === 'edit_code' ||
+        !action
+      ) {
         if (
           typeof extracted.file === 'string' &&
           typeof extracted.target_function === 'string' &&
@@ -265,7 +302,7 @@ async function executor(state) {
           targetFunction = extracted.target_function;
           newCode = extracted.new_code;
           if (!action) {
-            action = 'edit_code';
+            action = 'edit_function';
           }
         }
       }
@@ -322,9 +359,75 @@ async function executor(state) {
       state.retryCount += 1;
       return state;
     }
+  } else if (action === 'replace_file') {
+    if (!file || !newCode) {
+      console.warn(
+        '\x1b[33m%s\x1b[0m',
+        '⚠️ [Executor] replace_file 计划缺少 file 或 new_code 字段，跳过执行。',
+      );
+      console.warn('当前 plan 内容为:\n', formatPlanDebug(plan));
+      state.retryCount += 1;
+      return state;
+    }
+
+    try {
+      const cwd = process.cwd();
+      const normalizedFile = file.startsWith('/') ? file.slice(1) : file;
+      const directPath = path.resolve(cwd, normalizedFile);
+      const srcFallbackPath = path.resolve(cwd, 'src', normalizedFile);
+
+      let targetPath = directPath;
+
+      try {
+        await access(directPath);
+      } catch {
+        try {
+          await access(srcFallbackPath);
+          targetPath = srcFallbackPath;
+          console.log(
+            '\x1b[36m%s\x1b[0m',
+            `ℹ️ [Executor] 未找到 ${file}，改为全量覆写 src/${file}`,
+          );
+        } catch {
+          console.log(
+            '\x1b[36m%s\x1b[0m',
+            `ℹ️ [Executor] 文件不存在，将在工作目录创建/全量覆写: ${directPath}`,
+          );
+        }
+      }
+
+      await writeFile(targetPath, newCode, 'utf8');
+      console.log(
+        '\x1b[32m%s\x1b[0m',
+        `✅ [Executor] 已使用全量覆盖模式修复（或创建）文件: ${file}`,
+      );
+
+      try {
+        await execAsync(`node ${file}`);
+        state.errorLog = '';
+        state.status = 'success';
+        console.log(
+          '\x1b[32m%s\x1b[0m',
+          '✅ [Validator] 验证通过！全量覆盖后的文件可以正常执行。',
+        );
+      } catch (error) {
+        const errorText = error.stderr || error.message;
+        state.errorLog = errorText;
+        console.warn(
+          '\x1b[33m%s\x1b[0m',
+          '⚠️ [Validator] 全量覆盖后仍存在报错，已记录到 errorLog 供下一轮分析。',
+        );
+      }
+    } catch (error) {
+      console.error(
+        '\x1b[31m%s\x1b[0m',
+        '❌ [Executor] replace_file 写入文件失败：',
+        error,
+      );
+    }
   }
 
-  // 默认或 action === 'edit_code' 走原有代码修复分支
+  // 默认或 action === edit_function / edit_code 走原有函数级修复分支
   if (!file || !targetFunction || !newCode) {
     console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] 计划中缺少 file、target_function 或 new_code 字段，跳过物理覆写。');
     console.warn('当前 plan 内容为:\n', formatPlanDebug(plan));
@@ -368,6 +471,15 @@ async function executor(state) {
         console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Validator] 修复无效，捕获到新报错...');
       }
     } catch (error) {
+      if (action === 'edit_function' || action === 'edit_code') {
+        const hint =
+          'AST 解析失败，源文件可能存在 SyntaxError，请在下一次重试时改用 replace_file 动作进行全量覆盖修复！';
+        console.warn('\x1b[33m%s\x1b[0m', '⚠️ [Executor] ' + hint);
+        state.errorLog = hint;
+        state.retryCount += 1;
+        return state;
+      }
+
       console.error('\x1b[31m%s\x1b[0m', '❌ [Executor] 写入文件失败：', error);
     }
   }
