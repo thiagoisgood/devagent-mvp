@@ -515,7 +515,16 @@ async function executor(state) {
       state.status = "success";
       return state;
     } catch (error) {
-      const stderr = error.stderr || error.message || "";
+      const stdoutLog = error.stdout
+        ? `\n[STDOUT 输出]:\n${error.stdout}`
+        : "";
+      const stderrLog = error.stderr
+        ? `\n[STDERR 输出]:\n${error.stderr}`
+        : "";
+      const combinedLog =
+        `Command failed: ${error.message || ""}${stdoutLog}${stderrLog}` ||
+        "";
+
       if (error.stdout) {
         process.stdout.write(error.stdout);
       }
@@ -523,7 +532,7 @@ async function executor(state) {
         process.stderr.write(error.stderr);
       }
 
-      state.errorLog = stderr;
+      state.errorLog = combinedLog;
       state.retryCount += 1;
       return state;
     }
@@ -608,7 +617,13 @@ async function executor(state) {
           "✅ [Validator] 验证通过！全量覆盖后的文件可以正常执行。",
         );
       } catch (error) {
-        const errorText = error.stderr || error.message;
+        const stdoutLog = error.stdout
+          ? `\n[STDOUT 输出]:\n${error.stdout}`
+          : "";
+        const stderrLog = error.stderr
+          ? `\n[STDERR 输出]:\n${error.stderr}`
+          : "";
+        const errorText = `Validator failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
         state.errorLog = errorText;
         console.warn(
           "\x1b[33m%s\x1b[0m",
@@ -713,7 +728,13 @@ async function executor(state) {
           "✅ [Validator] 验证通过！Bug 已修复！",
         );
       } catch (error) {
-        const errorText = error.stderr || error.message;
+        const stdoutLog = error.stdout
+          ? `\n[STDOUT 输出]:\n${error.stdout}`
+          : "";
+        const stderrLog = error.stderr
+          ? `\n[STDERR 输出]:\n${error.stderr}`
+          : "";
+        const errorText = `Validator failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
         state.errorLog = errorText;
         console.warn(
           "\x1b[33m%s\x1b[0m",

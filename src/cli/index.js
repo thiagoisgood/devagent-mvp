@@ -214,7 +214,13 @@ async function main() {
       isResolved = true;
       break;
     } catch (error) {
-      const realErrorLog = error.stderr || error.message || String(error);
+      const stdoutLog = error.stdout
+        ? `\n[STDOUT 输出]:\n${error.stdout}`
+        : "";
+      const stderrLog = error.stderr
+        ? `\n[STDERR 输出]:\n${error.stderr}`
+        : "";
+      const realErrorLog = `Command failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
       lastRealErrorLog = realErrorLog;
 
       console.log(

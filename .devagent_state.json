@@ -58,5 +58,10 @@
     "errorLog": "Command failed: node --test\n",
     "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
     "timestamp": "2026-02-27T14:24:58.327Z"
+  },
+  {
+    "errorLog": "Command failed: node --test sandbox/stringUtils.test.js\n",
+    "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
+    "timestamp": "2026-02-27T14:30:40.898Z"
   }
 ]
