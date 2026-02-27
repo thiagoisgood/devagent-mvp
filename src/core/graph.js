@@ -7,6 +7,11 @@ import { promisify } from 'util';
 import chalk from 'chalk';
 import { replaceFunction } from './astEditor.js';
 import { askCommandPermission } from '../cli/ui.js';
+import {
+  validateCommand,
+  validateFileAccess,
+  SecurityError,
+} from '../security/firewall.js';
 
 const execAsync = promisify(exec);
 
@@ -324,6 +329,18 @@ async function executor(state) {
       return state;
     }
 
+    try {
+      validateCommand(command);
+    } catch (error) {
+      if (error instanceof SecurityError) {
+        state.errorLog =
+          '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
+        state.retryCount += 1;
+        return state;
+      }
+      throw error;
+    }
+
     const allowed = await askCommandPermission(command);
 
     if (!allowed) {
@@ -396,6 +413,18 @@ async function executor(state) {
         }
       }
 
+      try {
+        validateFileAccess(targetPath);
+      } catch (error) {
+        if (error instanceof SecurityError) {
+          state.errorLog =
+            '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
+          state.retryCount += 1;
+          return state;
+        }
+        throw error;
+      }
+
       await writeFile(targetPath, newCode, 'utf8');
       console.log(
         '\x1b[32m%s\x1b[0m',
@@ -452,6 +481,18 @@ async function executor(state) {
           // 两个路径都不存在，则按原始计划在 directPath 创建/覆写
           console.log('\x1b[36m%s\x1b[0m', `ℹ️ [Executor] 文件不存在，将在工作目录创建/覆写: ${directPath}`);
         }
+      }
+
+      try {
+        validateFileAccess(targetPath);
+      } catch (error) {
+        if (error instanceof SecurityError) {
+          state.errorLog =
+            '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
+          state.retryCount += 1;
+          return state;
+        }
+        throw error;
       }
 
       await replaceFunction(targetPath, targetFunction, newCode);

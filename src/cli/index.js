@@ -84,17 +84,41 @@ async function main() {
 
   const { errorLog: testErrorLog } = await runTests();
 
+  const initialErrorLog =
+    '/sandbox/mathUtils.js 模块冗余，请按注释要求清理';
+
   await createCheckpoint();
 
   const finalState = await appGraph.invoke({
     context,
-    errorLog: testErrorLog,
+    errorLog: initialErrorLog,
     retryCount: 0,
     status: 'running',
     plan: null,
   });
 
   const retriesUsed = finalState.retryCount ?? 0;
+
+  if (
+    typeof finalState.errorLog === 'string' &&
+    finalState.errorLog.includes('[致命拦截]')
+  ) {
+    const panelWidth = 60;
+    const title = ' SECURITY FIREWALL BLOCKED ';
+    const paddedTitle = title.padEnd(panelWidth, ' ');
+    const border = ''.padEnd(panelWidth, ' ');
+
+    console.log(chalk.bgRed.white.bold(border));
+    console.log(chalk.bgRed.white.bold(paddedTitle));
+    console.log(chalk.bgRed.white.bold(border));
+    console.log(
+      chalk.bgRed.white.bold(
+        ' 你的操作已被 DevAgent 安全铁幕强制拦截，请立即更换安全策略。 ',
+      ),
+    );
+    console.log(chalk.bgRed.white.bold(border));
+    console.log('');
+  }
 
   if (finalState.status === 'rollback') {
     console.log(
