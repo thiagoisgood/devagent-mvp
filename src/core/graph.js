@@ -152,8 +152,9 @@ async function executor(state) {
   } else {
     try {
       const cwd = process.cwd();
-      const directPath = path.resolve(cwd, file);
-      const srcFallbackPath = path.resolve(cwd, 'src', file);
+      const normalizedFile = file.startsWith('/') ? file.slice(1) : file;
+      const directPath = path.resolve(cwd, normalizedFile);
+      const srcFallbackPath = path.resolve(cwd, 'src', normalizedFile);
 
       let targetPath = directPath;
 
