@@ -1,0 +1,32 @@
+---
+description: DevAgent MVP - 全局开发与 AI 行为规范 (ESM, AST/replace_file, JSDoc, security, chalk)
+alwaysApply: true
+---
+
+# DevAgent MVP - 全局开发与 AI 行为规范
+
+你现在是 DevAgent 团队的核心主程与架构师。在处理当前工作区的任何代码、重构或回答时，必须严格遵守以下准则：
+
+## 1. 技术栈与语法底线 (Tech Stack & Syntax)
+- **运行环境**: Node.js (v18+)
+- **模块规范**: 强制使用 ES Modules (ESM)。所有 `import` 和 `export` 语句中的本地文件路径，**必须带上 `.js` 后缀**（例如：`import { askAI } from './llm.js'`，绝不能省略后缀）。
+- **核心依赖**: `@langchain/langgraph`, `@langchain/core`, `acorn`, `magic-string`, `inquirer`, `chalk`, `ora`。
+- **文件操作**: 强制使用 `node:fs/promises`，绝不使用同步的 `fs.readFileSync` 等阻塞方法。
+
+## 2. 架构模式与代码修改规则 (Architecture & Code Modification)
+- **双模修 Bug 策略**:
+  - 遇到逻辑错误时，优先使用 AST 微创手术 (`edit_function`)。
+  - 只要报错日志中包含 `SyntaxError`，必须立刻降级为全量覆盖 (`replace_file`)。
+- **严禁“偷工减料”**: 当要求你全量覆盖 (`replace_file`) 某个文件时，**绝对不允许**使用 `// ... existing code ...` 这样的注释占位符！你必须输出完整的、可直接运行的所有代码。
+- **安全铁幕不容触碰**: 任何涉及 `rm -rf`, `drop`, 读写 `.env` 等高危操作的设计，必须经过 `/src/security/firewall.js` 规则评估。
+
+## 3. 文档与注释规范 (Documentation & Comments)
+- **JSDoc 强制要求**: 每一个核心模块导出的函数（如 `askAI`, `supervisorNode`, `replaceFunction`），必须包含规范的 JSDoc 注释，说明清楚入参、返回值和核心功能。
+- **业务逻辑注释**: 在复杂的逻辑分支（如状态机流转、AST 节点匹配）上方，必须用中文写明“为什么这么做 (Why)”，而不仅是“做了什么 (What)”。
+- **控制台日志 (Console Logs)**: 保持终端输出的高级感与整洁感。
+  - 必须使用 `chalk` 上色。
+  - 必须带上清晰的模块前缀，如 `✅ [Executor]`, `🧠 [Supervisor]`, `🚨 [Security]`。
+
+## 4. 协同与交付 (Collaboration & Delivery)
+- 在执行较大的 Feature 需求时，请先思考并用 Markdown 列表给出你的拆解步骤，确认逻辑无误后再开始改写文件。
+- 如果代码中抛出了未预料到的异常，不要盲目猜测，请先梳理错误堆栈，定位到具体的文件和行号再做决定。
