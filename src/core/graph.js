@@ -138,6 +138,7 @@ const INITIAL_STATE = {
   errorLog: null,
   mode: 'fix',
   requirement: null,
+  monitorCommand: null,
   retryCount: 0,
   status: 'running',
   plan: null,
@@ -537,8 +538,12 @@ async function executor(state) {
         `✅ [Executor] 已使用全量覆盖模式修复（或创建）文件: ${file}`,
       );
 
+      const validateCommand =
+        state.monitorCommand && state.monitorCommand.trim()
+          ? state.monitorCommand.trim()
+          : `node ${file}`;
       try {
-        await execAsync(`node ${file}`);
+        await execAsync(validateCommand);
         state.errorLog = '';
         state.status = 'success';
         console.log(
@@ -617,8 +622,12 @@ async function executor(state) {
         `✅ [Executor] AST 手术成功！精准替换了 ${file} 中的 ${targetFunction} 函数。`,
       );
 
+      const validateCommand =
+        state.monitorCommand && state.monitorCommand.trim()
+          ? state.monitorCommand.trim()
+          : `node ${file}`;
       try {
-        await execAsync(`node ${file}`);
+        await execAsync(validateCommand);
         state.errorLog = '';
         state.status = 'success';
         console.log('\x1b[32m%s\x1b[0m', '✅ [Validator] 验证通过！Bug 已修复！');
