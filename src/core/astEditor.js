@@ -13,29 +13,43 @@ export async function replaceFunction(filePath, targetFuncName, newFuncCode) {
 
   let replaced = false;
 
+  function isTargetFunctionDeclaration(node) {
+    return node.type === 'FunctionDeclaration' && node.id && node.id.name === targetFuncName;
+  }
+
+  function isTargetVariableFunction(node) {
+    if (node.type !== 'VariableDeclaration') {
+      return false;
+    }
+
+    for (const decl of node.declarations) {
+      if (
+        decl.id &&
+        decl.id.type === 'Identifier' &&
+        decl.id.name === targetFuncName &&
+        decl.init &&
+        (decl.init.type === 'ArrowFunctionExpression' || decl.init.type === 'FunctionExpression')
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   for (const node of ast.body) {
-    if (node.type === 'FunctionDeclaration' && node.id && node.id.name === targetFuncName) {
+    if (isTargetFunctionDeclaration(node) || isTargetVariableFunction(node)) {
       magicString.overwrite(node.start, node.end, newFuncCode);
       replaced = true;
       break;
     }
 
-    if (node.type === 'VariableDeclaration') {
-      for (const decl of node.declarations) {
-        if (
-          decl.id &&
-          decl.id.type === 'Identifier' &&
-          decl.id.name === targetFuncName &&
-          decl.init &&
-          (decl.init.type === 'ArrowFunctionExpression' || decl.init.type === 'FunctionExpression')
-        ) {
-          magicString.overwrite(node.start, node.end, newFuncCode);
-          replaced = true;
-          break;
-        }
-      }
+    if (node.type === 'ExportNamedDeclaration' && node.declaration) {
+      const decl = node.declaration;
 
-      if (replaced) {
+      if (isTargetFunctionDeclaration(decl) || isTargetVariableFunction(decl)) {
+        magicString.overwrite(node.start, node.end, newFuncCode);
+        replaced = true;
         break;
       }
     }

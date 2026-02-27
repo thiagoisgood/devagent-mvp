@@ -35,6 +35,8 @@ async function supervisor(state) {
     '【手术铁律】',
     '- 除非报错明确指出测试文件语法错误，否则你【绝对优先】修改源业务代码文件（例如 "/sandbox/mathUtils.js"、"src/core/xxx.js"），而不是去修改测试文件（例如 "test.js"、"src/test.js"）。',
     '- 你提供的 target_function 必须是该文件中真实存在的、标准的函数声明名称（例如 "add"、"multiply"、"handleError"、"createServer"）。绝对不要臆造测试块名称（例如 "test_add"、"should_add"、"add_should_return_sum" 等）。',
+    '【导出守则】如果你修改的函数在原文件中带有 export 或 export const 关键字，你输出的 new_code 必须原封不动地带上这些导出声明，绝不能丢失！',
+    '【路径守则】你返回的 file 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
     '',
     '【输出格式的强制要求】',
     '- 你**只能**输出一个 JSON 对象，且**必须且只允许**包含以下四个字段：',
