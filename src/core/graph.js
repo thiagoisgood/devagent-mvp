@@ -350,7 +350,7 @@ async function executor(state) {
     try {
       validateCommand(command);
     } catch (error) {
-      if (error instanceof SecurityError) {
+      if (error instanceof SecurityError || error?.name === 'SecurityError') {
         state.errorLog =
           '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
         renderSecurityBlockPanel();
@@ -435,7 +435,7 @@ async function executor(state) {
       try {
         validateFileAccess(targetPath);
       } catch (error) {
-        if (error instanceof SecurityError) {
+        if (error instanceof SecurityError || error?.name === 'SecurityError') {
           state.errorLog =
             '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
           renderSecurityBlockPanel();
@@ -506,7 +506,7 @@ async function executor(state) {
       try {
         validateFileAccess(targetPath);
       } catch (error) {
-        if (error instanceof SecurityError) {
+        if (error instanceof SecurityError || error?.name === 'SecurityError') {
           state.errorLog =
             '🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！';
           renderSecurityBlockPanel();

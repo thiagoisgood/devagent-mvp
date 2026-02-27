@@ -21,16 +21,19 @@ export function validateCommand(command) {
     return;
   }
 
-  const deadlyPatterns = [
-    /rm\s+-rf\b/,
-    /\brm\s+-fr\b/,
-    /\b(drop|truncate)\s+/,
-    /\bmkfs\b/,
-    /chmod\s+777\b/,
-    /\bshutdown\b/,
+  const deadlySubstrings = [
+    'rm -rf',
+    'rm -fr',
+    ' drop ',
+    ' truncate ',
+    'mkfs',
+    'chmod 777',
+    'shutdown',
   ];
 
-  const isDeadly = deadlyPatterns.some((regex) => regex.test(normalized));
+  const isDeadly = deadlySubstrings.some((snippet) =>
+    normalized.includes(snippet),
+  );
 
   if (isDeadly) {
     throw new SecurityError(
