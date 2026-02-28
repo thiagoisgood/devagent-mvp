@@ -1,5 +1,6 @@
 import { askAI } from "./llm.js";
 import { getBlacklist } from "./memory.js";
+import { getAllMemories, saveMemory } from "../memory/db.js";
 import { access, writeFile, readdir, readFile } from "fs/promises";
 import path from "path";
 import { exec, spawn } from "child_process";
@@ -219,6 +220,20 @@ function renderExecutionPlan(plan) {
       `${chalk.bold.white("动作:")} ${chalk.bold.blue("browse_web")}（联网查阅）`,
     );
     lines.push(`${chalk.bold.white("URL:")} ${chalk.cyan(parsed.url)}`);
+  } else if (
+    action === "memorize" &&
+    typeof parsed.context === "string" &&
+    typeof parsed.lesson === "string"
+  ) {
+    lines.push(
+      `${chalk.bold.white("动作:")} ${chalk.bold.magenta("memorize")}（刻入记忆）`,
+    );
+    lines.push(
+      `${chalk.bold.white("场景:")} ${chalk.cyan(parsed.context)}`,
+    );
+    lines.push(
+      `${chalk.bold.white("教训:")} ${chalk.cyan(parsed.lesson)}`,
+    );
   } else {
     lines.push(
       chalk.yellow("⚠️ 未能识别标准计划结构，以下为原始内容（已格式化）："),
@@ -260,6 +275,18 @@ async function supervisor(state) {
   }
 
   const blacklist = await getBlacklist();
+  const memories = getAllMemories();
+
+  const memoryBlock =
+    Array.isArray(memories) && memories.length > 0
+      ? [
+          "【项目专属记忆与黑名单 (极度重要)】：",
+          "以下是你在这个项目中曾经踩过的坑或被定下的死规矩，请在规划和写代码时**绝对遵守**：",
+          ...memories.map(
+            (m) => `- [场景: ${m.context}] 教训: ${m.lesson}`,
+          ),
+        ].join("\n")
+      : "";
 
   const mode = state.mode === "feature" ? "feature" : "fix";
 
@@ -267,7 +294,7 @@ async function supervisor(state) {
   let usr;
 
   if (mode === "feature") {
-    sys = [
+    const baseSys = [
       "你现在是一名 DevAgent architect-planner 与全栈开发专家。",
       "你现在的任务是根据用户的需求从 0 到 1 编写代码。请仔细分析上下文，决定需要创建或修改哪些文件。你可以使用 replace_file 动作来生成完整文件，使用 patch_code 进行局部修改，或者使用 run_command 初始化依赖。",
       "",
@@ -302,6 +329,9 @@ async function supervisor(state) {
       "【武器 7：browse_web（联网查阅）】",
       '- 用于访问外网获取文档、报错说明或第三方库用法。输出格式：{ "action": "browse_web", "url": "你想访问的完整URL(如 https://react.dev/)" }',
       "",
+      "【武器 8：memorize（刻入记忆）】",
+      '当你成功修复了一个非常隐蔽的 Bug，或者用户明确要求你记住某条规则时，可调用 memorize 将其永久刻入记忆库。输出格式：{ "action": "memorize", "context": "触发这个教训的场景，如\'升级 React\'", "lesson": "得出的结论或黑名单，如\'绝对不能使用过期的某库\'" }',
+      "",
       "【Web 查阅策略】",
       "如果你遇到不熟悉的报错、未知的第三方库用法、或者需要查阅最新的官方文档，请毫不犹豫地使用 browse_web 动作去获取外部知识。获取到的网页内容会以 Markdown 格式返回到你的 observations 中。",
       "",
@@ -314,7 +344,7 @@ async function supervisor(state) {
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web"、"memorize" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -365,8 +395,15 @@ async function supervisor(state) {
       '  "url": "string，你想访问的完整 URL，例如 \\"https://react.dev/\\""',
       "}",
       "",
+      "当你选择 memorize 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "memorize",',
+      '  "context": "string，触发这个教训的场景，如 \\"升级 React\\"",',
+      '  "lesson": "string，得出的结论或黑名单，如 \\"绝对不能使用过期的某库\\""',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url 之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url、context、lesson（memorize 时）之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -377,7 +414,8 @@ async function supervisor(state) {
       "- 如果你输出了多余字段、Markdown 包裹、输出了整个文件的代码，或任意非 JSON 垃圾内容，将会被视为**严重错误**。",
       "",
       "现在，请根据给定的错误日志、项目上下文和黑名单，严格按上述要求输出 JSON 对象。",
-    ].join("\n");
+    ];
+    sys = (memoryBlock ? memoryBlock + "\n\n" : "") + baseSys.join("\n");
 
     usr = [
       `当前项目上下文: ${state.context || "(无上下文)"}`,
@@ -422,6 +460,9 @@ async function supervisor(state) {
       "【武器 7：browse_web（联网查阅）】",
       '- 用于访问外网获取文档、报错说明或第三方库用法。输出格式：{ "action": "browse_web", "url": "你想访问的完整URL(如 https://react.dev/)" }',
       "",
+      "【武器 8：memorize（刻入记忆）】",
+      '当你成功修复了一个非常隐蔽的 Bug，或者用户明确要求你记住某条规则时，可调用 memorize 将其永久刻入记忆库。输出格式：{ "action": "memorize", "context": "触发这个教训的场景，如\'升级 React\'", "lesson": "得出的结论或黑名单，如\'绝对不能使用过期的某库\'" }',
+      "",
       "【Web 查阅策略】",
       "如果你遇到不熟悉的报错、未知的第三方库用法、或者需要查阅最新的官方文档，请毫不犹豫地使用 browse_web 动作去获取外部知识。获取到的网页内容会以 Markdown 格式返回到你的 observations 中。",
       "",
@@ -434,7 +475,7 @@ async function supervisor(state) {
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web"、"memorize" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -485,8 +526,15 @@ async function supervisor(state) {
       '  "url": "string，你想访问的完整 URL，例如 \\"https://react.dev/\\""',
       "}",
       "",
+      "当你选择 memorize 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "memorize",',
+      '  "context": "string，触发这个教训的场景，如 \\"升级 React\\"",',
+      '  "lesson": "string，得出的结论或黑名单，如 \\"绝对不能使用过期的某库\\""',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url 之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url、context、lesson（memorize 时）之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -499,7 +547,7 @@ async function supervisor(state) {
       "现在，请根据给定的错误日志、项目上下文和黑名单，严格按上述要求输出 JSON 对象。",
     ];
 
-    sys = sysParts.join("\n");
+    sys = (memoryBlock ? memoryBlock + "\n\n" : "") + sysParts.join("\n");
 
     const usrParts = [
       "当前错误日志：",
@@ -569,6 +617,8 @@ async function executor(state) {
   let searchKeyword;
   let searchDirPath;
   let browseUrl;
+  let memorizeContext;
+  let memorizeLesson;
 
   if (plan && typeof plan === "object") {
     const extractPlan = (value) => {
@@ -635,6 +685,13 @@ async function executor(state) {
         typeof extracted.url === "string"
       ) {
         browseUrl = extracted.url;
+      } else if (
+        action === "memorize" &&
+        typeof extracted.context === "string" &&
+        typeof extracted.lesson === "string"
+      ) {
+        memorizeContext = extracted.context;
+        memorizeLesson = extracted.lesson;
       }
     }
   }
@@ -647,6 +704,36 @@ async function executor(state) {
     console.warn("当前 plan 内容为:\n", formatPlanDebug(plan));
     state.retryCount += 1;
     return state;
+  }
+
+  // memorize：将教训写入 SQLite 记忆库，observations 追加日志后回 Supervisor
+  if (action === "memorize") {
+    if (!memorizeContext || !memorizeLesson) {
+      console.warn(
+        chalk.yellow("⚠️ [Executor] memorize 计划缺少 context 或 lesson 字段，跳过。"),
+      );
+      state.retryCount += 1;
+      return state;
+    }
+    try {
+      saveMemory(memorizeContext, memorizeLesson);
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(
+        "🧠 [Memory] 已将该教训永久刻入 SQLite 记忆库",
+      );
+      console.log(
+        chalk.magenta("🧠 [Memory] 已将该教训永久刻入 SQLite 记忆库"),
+      );
+      state.status = "running";
+      return state;
+    } catch (err) {
+      const msg = err?.message || String(err);
+      console.warn(chalk.yellow("⚠️ [Executor] memorize 失败: " + msg));
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(`[memorize] 错误: ${msg}`);
+      state.status = "running";
+      return state;
+    }
   }
 
   // 只读检索工具：不触发 Validator/Auditor，结果写入 observations 后直接回 Supervisor

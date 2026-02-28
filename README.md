@@ -1,4 +1,5 @@
 # 🚀 DevAgent (MVP)
+
 > **An Enterprise-Grade Autonomous SWE Agent.**
 > 你的下一代全自动本地代码架构师。基于图状态机编排的 AI 结对编程引擎，具备 TDD 测试驱动、语义级代码手术、全仓 RAG 感知与极强防御纵深。
 
@@ -19,21 +20,27 @@
 ## ✨ 核心架构与特性 (The 4 Pillars)
 
 ### 1. 🧠 多智能体协同状态机 (Multi-Agent State Machine)
+
 底层告别死板的线性脚本，采用 LangGraph 理念构建的图状态机，包含多个独立运作的 Agent 节点：
+
 - **👑 Supervisor (监督者/主程)**：全场调度核心，负责理解上下文、规划任务流、分发动作。
 - **🛠️ Executor (执行者)**：极其精准的代码刀客，负责执行具体的重构或文件读写。
 - **🧪 Tester (QA 测试专员)**：基于新业务代码，动态生成 Jest/Node原生 等 TDD 测试用例，并在隔离沙盒中运行。
 - **🛡️ Auditor (安全审计员)**：在代码落盘前的最后一环，执行极其严苛的语义级安全审查。
 
 ### 2. 🔪 语义级微创手术刀 (Semantic Patch Engine)
+
 放弃脆弱且边缘情况繁多的 AST (抽象语法树) 静态解析。DevAgent 进化出基于 LLM 直觉的 **Search and Replace Block** 引擎。无论代码是何种语言、包含何种神仙语法，AI 都能精准定位错误片段并进行微创替换，绝不破坏现有文件结构。
 
 ### 3. 👁️ 全仓雷达与外网神经 (Agentic Search & Web Surfing)
+
 - **IDE 级全仓漫游**：打破单文件上下文盲区。大模型可自主调用 `list_dir`, `search_code`, `read_file` 等动作，像人类一样在项目中“翻箱倒柜”寻找函数定义。
 - **外网知识库直连**：原生集成 `Jina Reader`。遇到未知的第三方库？AI 会自动调用 `browse_web` 联网爬取最新的官方文档（Markdown 格式），转化为自身认知后再写代码。
 
 ### 4. 🛡️ 零信任防御与物理沙盒 (Zero-Trust DevSecOps)
+
 把物理机权限交给 AI 是极其危险的。我们构筑了独创的**四层防御纵深**：
+
 1. **硬规则铁幕 (Hard Rules)**：底层正则秒杀 `rm -rf`, `DROP TABLE` 等系统级毁灭指令。
 2. **LLM 语义审计 (Semantic Auditor)**：拦截恶意逻辑注入（如窃取 `~/.ssh` 私钥、静默执行恶意 Shell 脚本）。
 3. **10秒防挂死引信 (Fail-Fast Timeout)**：在执行沙盒测试时，若检测到死循环或交互式 CLI 阻塞，10秒内瞬间强杀进程，并截取案发现场（Stdout）逼迫 AI 重新推理。
@@ -47,7 +54,7 @@
 [Human] "帮我写一个并发限制器，并补齐边界单测"
    │
    ▼
-[Snapshot] 隐式 Git 快照打底 
+[Snapshot] 隐式 Git 快照打底
    │
    ▼
 [Supervisor] 调用 search_code / read_file 分析现有 Utils 目录
@@ -65,3 +72,33 @@
    │
    ▼
 [Success] ✅ 100% 测试覆盖通过，大闭环结束！
+
+
+🗺️ 演进路线图 (Roadmap)
+DevAgent 目前处于功能极其强悍的 MVP 阶段。在通往真正的企业级 DevOps 平台之路上，我们正在积极推进以下模块的研发：
+
+[✅] Docker 安全沙盒隔离 (Sandboxing)：将所有的 npm install 和测试验证命令放入临时 Docker 容器中执行，实现与宿主机的彻底物理隔离。
+
+[ ] DevOps 部署专家 Agent：赋予 AI 读取 .env、检查云端端口占用、甚至接入 CI/CD 流水线 (GitHub Actions / Jenkins) 的能力。
+
+[✅] 跨周期持久化记忆 (Memory DB)：引入 SQLite/Lowdb。记录每次项目踩坑的“黑名单”（如：组件A与组件B存在版本冲突），在未来的开发中永久规避。
+
+[ ] 全局 AST 重构引擎 (Upgrade & Refactor)：集成 ast-grep。通过一行命令，让 AI 自动完成将项目从 React 17 升级到 18 的全量安全重构。
+
+🤝 参与共建 (Contributing)
+AGI 改变软件工程的浪潮才刚刚开始。欢迎提交 Issue 探讨更疯狂的 Agent 架构，或者提交 PR 为 DevAgent 的武器库添加更多的 Tools（如数据库只读权限、云端排错探针等）。
+
+📄 License
+MIT License
+
+
+***
+
+### 🎩 主程结语
+
+这份文档完美地把我们这几天踩过的坑、解决的难题（比如那个经典的 Inquirer 卡死导致的防挂死引信）、以及我们对未来的架构设计，全部浓缩在了一起。
+
+它看起来已经完全具备了一个能在 Hacker News 或者 GitHub Trending 上霸榜的开源项目的潜质。
+
+**去清理一下本地多余的日志和配置，然后自信地敲下 `git init` (如果还没建的话)，`git add .`，`git commit -m "feat: DevAgent MVP initial release"`，最后推送到 GitHub 吧！** 期待看到它在开源社区中大放异彩！
+```
