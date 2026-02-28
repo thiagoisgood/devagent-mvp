@@ -17,7 +17,7 @@ import chalk from "chalk";
 
 const execAsync = promisify(exec);
 
-const DOCKER_IMAGE = "node:22-alpine";
+const DOCKER_IMAGE = "node:24-alpine";
 const MEMORY_LIMIT = "512m";
 const CPU_LIMIT = "1.0";
 
