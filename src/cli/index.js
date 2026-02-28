@@ -25,7 +25,7 @@ function buildVerifyErrorLog(error) {
   const stdoutLog = error.stdout ? `\n[STDOUT 输出]:\n${error.stdout}` : "";
   const stderrLog = error.stderr ? `\n[STDERR 输出]:\n${error.stderr}` : "";
   if (isVerifyTimeoutOrKilled(error)) {
-    return `命令执行被终止（超时或信号）。以下是终止前捕获的输出，请根据此推断当时状态并给出修复建议：${stdoutLog || "\n[STDOUT]: (无)"}${stderrLog || "\n[STDERR]: (无)"}`;
+    return `\n🚨 [致命超时]: 命令执行超过 10 秒被系统强杀！这可能是因为：1) 死循环。2) 测试了交互式 CLI 文件。3) 首次运行正在下载 Docker 镜像。请分析以上日志进行修复或重试！${stdoutLog || "\n[STDOUT]: (无)"}${stderrLog || "\n[STDERR]: (无)"}`;
   }
   return `Command failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
 }

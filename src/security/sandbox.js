@@ -5,6 +5,7 @@
 
 import { exec } from "child_process";
 import { promisify } from "util";
+import chalk from "chalk";
 
 const execAsync = promisify(exec);
 
@@ -30,6 +31,13 @@ export async function runInSandbox(command, timeoutMs = 10000) {
     err.code = "DOCKER_NOT_AVAILABLE";
     throw err;
   }
+
+  // 首次运行拉取镜像可能较久，提前提醒避免用户误判为死循环或 CLI 卡死
+  console.log(
+    chalk.blue(
+      "🐳 [Sandbox] 如果是首次运行，Docker 可能会因为下载 node:18-alpine 镜像而花费较长时间，此时可能会触发超时。",
+    ),
+  );
 
   const cwd = process.cwd();
   // 单引号包裹并转义内部单引号，避免 sh -c 注入与解析错误
