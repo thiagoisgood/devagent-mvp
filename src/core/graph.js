@@ -737,11 +737,12 @@ async function executor(state) {
     return state;
   }
 
-  // finish：主动交卷，将状态设为 success 以便条件边路由至 END
+  // finish：主动交卷，将状态设为 success 以便状态机跳出循环导向 END
   if (action === "finish") {
     const msg = finishMessage != null ? String(finishMessage).trim() : "(无说明)";
     console.log(chalk.green("✅ [Executor] 任务已确认完成: " + msg));
-    return { ...state, status: "success" };
+    state.status = "success";
+    return state;
   }
 
   // memorize：将教训写入 SQLite 记忆库，observations 追加日志后回 Supervisor
@@ -1398,6 +1399,10 @@ const workflow = {
             break;
           }
           await executor(state);
+          // success 状态必须在此拦截并跳出循环，导向 END，避免再次进入 supervisor 形成死循环
+          if (state.status === "success") {
+            break;
+          }
           // executor 内可能将 status 置为 fatal_security，需再次检查后立即跳出，避免下一轮再次进入 supervisor
           if (state.status === "fatal_security") {
             break;

@@ -146,6 +146,16 @@ async function main() {
         lastFinalState.errorLog) ||
       "";
 
+    // 主动交卷：纯记忆/查阅任务未修改任何物理文件，跳过后续测试验证
+    if (lastFinalState.status === "success") {
+      console.log(
+        chalk.green(
+          "✅ 流程结束：AI 已完成交互任务，未进行代码变更，跳过后续测试验证。",
+        ),
+      );
+      process.exit(0);
+    }
+
     // 安全熔断：Feature 阶段若遇防火墙或语义审计拦截，立即回滚并退出，不进入后续重试
     const featureSecurityIntercept =
       typeof lastFinalState.errorLog === "string" &&
@@ -254,6 +264,16 @@ async function main() {
 
       const finalState = await appGraph.invoke(fixState);
       lastFinalState = finalState;
+
+      // 主动交卷：纯记忆/查阅任务未修改任何物理文件，跳过后续测试验证
+      if (finalState.status === "success") {
+        console.log(
+          chalk.green(
+            "✅ 流程结束：AI 已完成交互任务，未进行代码变更，跳过后续测试验证。",
+          ),
+        );
+        process.exit(0);
+      }
 
       // 安全熔断：仅当非安全拦截时才消耗重试机会；拦截时快速失败并跳出大循环
       const isSecurityIntercept =
