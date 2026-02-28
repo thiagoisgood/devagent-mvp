@@ -1,8 +1,8 @@
 import { askAI } from "./llm.js";
 import { getBlacklist } from "./memory.js";
-import { access, writeFile } from "fs/promises";
+import { access, writeFile, readdir, readFile } from "fs/promises";
 import path from "path";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
 import { patchFile } from "./patchEditor.js";
@@ -15,6 +15,22 @@ import {
 import { auditCodeChange } from "../security/auditor.js";
 
 const execAsync = promisify(exec);
+
+/**
+ * 确保解析后的路径位于 cwd 之下，防止路径穿越（只读检索用）。
+ * @param {string} resolvedPath - 已 resolve 的绝对路径
+ * @returns {string} 规范化后的路径
+ * @throws {SecurityError} 若路径在工作区外
+ */
+function ensureUnderCwd(resolvedPath) {
+  const cwd = process.cwd();
+  const normalized = path.resolve(resolvedPath);
+  const rel = path.relative(cwd, normalized);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new SecurityError(`路径不允许访问工作区之外: ${resolvedPath}`);
+  }
+  return normalized;
+}
 
 function renderSecurityBlockPanel() {
   const panelWidth = 60;
@@ -147,6 +163,26 @@ function renderExecutionPlan(plan) {
         lines.push(chalk.dim(`… 还有 ${moreLines} 行`));
       }
     }
+  } else if (action === "list_dir" && typeof parsed.path === "string") {
+    lines.push(
+      `${chalk.bold.white("动作:")} ${chalk.bold.blue("list_dir")}（只读检索）`,
+    );
+    lines.push(`${chalk.bold.white("目录:")} ${chalk.cyan(parsed.path)}`);
+  } else if (action === "read_file" && typeof parsed.file === "string") {
+    lines.push(
+      `${chalk.bold.white("动作:")} ${chalk.bold.blue("read_file")}（只读检索）`,
+    );
+    lines.push(`${chalk.bold.white("文件:")} ${chalk.cyan(parsed.file)}`);
+  } else if (
+    action === "search_code" &&
+    typeof parsed.keyword === "string" &&
+    typeof parsed.path === "string"
+  ) {
+    lines.push(
+      `${chalk.bold.white("动作:")} ${chalk.bold.blue("search_code")}（只读检索）`,
+    );
+    lines.push(`${chalk.bold.white("关键词:")} ${chalk.cyan(parsed.keyword)}`);
+    lines.push(`${chalk.bold.white("范围:")} ${chalk.cyan(parsed.path)}`);
   } else {
     lines.push(
       chalk.yellow("⚠️ 未能识别标准计划结构，以下为原始内容（已格式化）："),
@@ -173,6 +209,8 @@ const INITIAL_STATE = {
   lastWrittenFile: null,
   /** 本次生成的测试文件路径（如 sandbox/foo.test.js），供外层 CLI 做靶向 node --test 隔离 */
   testTarget: null,
+  /** Agentic Search：检索工具（list_dir/read_file/search_code）的返回结果，供 Supervisor 下一轮决策 */
+  observations: [],
 };
 
 async function supervisor(state) {
@@ -200,7 +238,7 @@ async function supervisor(state) {
       "在本模式下，你依然必须严格遵守以下 DevAgent 执行协议：",
       "",
       "你是一台**无情的 DevAgent Supervisor**，根据错误日志和项目上下文，为下游执行器规划下一步「行动方案」。",
-      "现在你拥有三种武器，可以在每一轮只选择其中一种：",
+      "现在你拥有多种武器，可以在每一轮只选择其中一种：",
       "",
       "【武器 1：patch_code（语义局部替换）】",
       "你现在拥有一个强大的 patch_code 动作来进行局部代码修改。你不需要告诉我函数名，你只需要提供：",
@@ -216,13 +254,25 @@ async function supervisor(state) {
       "- 使用场景：当你判断错误主要来源于缺少 npm 依赖、需要创建文件夹、缺少构建产物、依赖未安装、需要查看系统环境（例如 node 版本 / npm 版本）等「环境 / DevOps」问题时。",
       '- 你的任务是：给出一条需要在终端中执行的命令（例如 "npm install lodash"、"mkdir -p sandbox"、"node -v" 等）。',
       "",
+      "【武器 4：list_dir（查看目录结构）】",
+      '- 用于查看某个目录下的文件树结构。输出格式：{ "action": "list_dir", "path": "目录路径（相对路径，如 sandbox 或 src/core）" }',
+      "",
+      "【武器 5：read_file（读取文件内容）】",
+      '- 当你需要了解某个文件的具体代码时使用。输出格式：{ "action": "read_file", "file": "文件路径（相对路径，如 sandbox/mathUtils.js）" }',
+      "",
+      "【武器 6：search_code（全局搜索）】",
+      '- 在指定目录下全局搜索某个函数名或变量名。输出格式：{ "action": "search_code", "keyword": "搜索关键词", "path": "搜索范围目录（相对路径）" }',
+      "",
+      "【Agentic Search 策略】",
+      "在决定修改代码之前，如果你对项目结构或相关函数定义不清晰，请优先使用上述 list_dir、read_file、search_code 三种工具来收集上下文。收集到的信息会返回给你（observations），你可以据此再进行下一步动作。",
+      "",
       "【手术铁律（仅对 patch_code / replace_file 生效）】",
       '除非报错明确指出测试文件语法错误，否则你【绝对优先】修改源业务代码文件（例如 "sandbox/mathUtils.js"、"src/core/xxx.js"），而不是去修改测试文件。',
-      '【路径守则】你返回的 file 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
+      '【路径守则】你返回的 file/path 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file" 或 "run_command" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -248,8 +298,27 @@ async function supervisor(state) {
       '  "command": "string，需要在终端执行的完整命令，例如 \\"npm install lodash\\"、\\"mkdir -p sandbox\\""',
       "}",
       "",
+      "当你选择 list_dir 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "list_dir",',
+      '  "path": "string，相对目录路径，例如 \\"sandbox\\"、\\"src/core\\""',
+      "}",
+      "",
+      "当你选择 read_file 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "read_file",',
+      '  "file": "string，相对文件路径，例如 \\"sandbox/mathUtils.js\\""',
+      "}",
+      "",
+      "当你选择 search_code 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "search_code",',
+      '  "keyword": "string，搜索关键词（函数名、变量名等）",',
+      '  "path": "string，搜索范围目录相对路径，例如 \\"src\\"、\\"sandbox\\""',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command 之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword 之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -266,13 +335,18 @@ async function supervisor(state) {
       `当前项目上下文: ${state.context || "(无上下文)"}`,
       "",
       `用户的新需求: ${state.requirement || "(无需求描述)"}`,
+      "",
+      "检索结果（observations，上一轮 list_dir/read_file/search_code 的返回）：",
+      Array.isArray(state.observations) && state.observations.length > 0
+        ? state.observations.join("\n\n---\n\n")
+        : "(无)",
     ].join("\n");
   } else {
     const sysParts = [
       "【fix 模式唯一任务】忽略之前的开发需求（requirement）；现在的唯一任务是修复 errorLog 中的报错，使验证命令能够通过。",
       "",
       "你是一台**无情的 DevAgent Supervisor**，根据错误日志和项目上下文，为下游执行器规划下一步「行动方案」。",
-      "现在你拥有三种武器，可以在每一轮只选择其中一种：",
+      "现在你拥有多种武器，可以在每一轮只选择其中一种：",
       "",
       "【武器 1：patch_code（语义局部替换）】",
       "你现在拥有一个强大的 patch_code 动作来进行局部代码修改。你不需要告诉我函数名，你只需要提供：",
@@ -288,13 +362,25 @@ async function supervisor(state) {
       "- 使用场景：当你判断错误主要来源于缺少 npm 依赖、需要创建文件夹、缺少构建产物、依赖未安装、需要查看系统环境（例如 node 版本 / npm 版本）等「环境 / DevOps」问题时。",
       '- 你的任务是：给出一条需要在终端中执行的命令（例如 "npm install lodash"、"mkdir -p sandbox"、"node -v" 等）。',
       "",
+      "【武器 4：list_dir（查看目录结构）】",
+      '- 用于查看某个目录下的文件树结构。输出格式：{ "action": "list_dir", "path": "目录路径（相对路径，如 sandbox 或 src/core）" }',
+      "",
+      "【武器 5：read_file（读取文件内容）】",
+      '- 当你需要了解某个文件的具体代码时使用。输出格式：{ "action": "read_file", "file": "文件路径（相对路径，如 sandbox/mathUtils.js）" }',
+      "",
+      "【武器 6：search_code（全局搜索）】",
+      '- 在指定目录下全局搜索某个函数名或变量名。输出格式：{ "action": "search_code", "keyword": "搜索关键词", "path": "搜索范围目录（相对路径）" }',
+      "",
+      "【Agentic Search 策略】",
+      "在决定修改代码之前，如果你对项目结构或相关函数定义不清晰，请优先使用上述 list_dir、read_file、search_code 三种工具来收集上下文。收集到的信息会返回给你（observations），你可以据此再进行下一步动作。",
+      "",
       "【手术铁律（仅对 patch_code / replace_file 生效）】",
       '除非报错明确指出测试文件语法错误，否则你【绝对优先】修改源业务代码文件（例如 "sandbox/mathUtils.js"、"src/core/xxx.js"），而不是去修改测试文件（例如 "test.js"、"src/test.js"）。',
-      '【路径守则】你返回的 file 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
+      '【路径守则】你返回的 file/path 路径绝对不能以 / 开头，必须是纯粹的相对路径（例如 "sandbox/mathUtils.js"）。',
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file" 或 "run_command" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -320,8 +406,27 @@ async function supervisor(state) {
       '  "command": "string，需要在终端执行的完整命令，例如 \\"npm install lodash\\"、\\"mkdir -p sandbox\\""',
       "}",
       "",
+      "当你选择 list_dir 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "list_dir",',
+      '  "path": "string，相对目录路径，例如 \\"sandbox\\"、\\"src/core\\""',
+      "}",
+      "",
+      "当你选择 read_file 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "read_file",',
+      '  "file": "string，相对文件路径，例如 \\"sandbox/mathUtils.js\\""',
+      "}",
+      "",
+      "当你选择 search_code 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "search_code",',
+      '  "keyword": "string，搜索关键词（函数名、变量名等）",',
+      '  "path": "string，搜索范围目录相对路径，例如 \\"src\\"、\\"sandbox\\""',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command 之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword 之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -343,6 +448,10 @@ async function supervisor(state) {
       state.context || "(无上下文)",
       "\n历史黑名单（最近问题）：",
       JSON.stringify(blacklist, null, 2),
+      "\n检索结果（observations，上一轮 list_dir/read_file/search_code 的返回）：",
+      Array.isArray(state.observations) && state.observations.length > 0
+        ? state.observations.join("\n\n---\n\n")
+        : "(无)",
     ];
 
     usr = usrParts.join("\n");
@@ -395,6 +504,10 @@ async function executor(state) {
   let newCode;
   let action;
   let command;
+  let dirPath;
+  let readFilePath;
+  let searchKeyword;
+  let searchDirPath;
 
   if (plan && typeof plan === "object") {
     const extractPlan = (value) => {
@@ -445,6 +558,17 @@ async function executor(state) {
           searchBlock = extracted.search_block;
           replaceBlock = extracted.replace_block;
         }
+      } else if (action === "list_dir" && typeof extracted.path === "string") {
+        dirPath = extracted.path;
+      } else if (action === "read_file" && typeof extracted.file === "string") {
+        readFilePath = extracted.file;
+      } else if (
+        action === "search_code" &&
+        typeof extracted.keyword === "string" &&
+        typeof extracted.path === "string"
+      ) {
+        searchKeyword = extracted.keyword;
+        searchDirPath = extracted.path;
       }
     }
   }
@@ -457,6 +581,126 @@ async function executor(state) {
     console.warn("当前 plan 内容为:\n", formatPlanDebug(plan));
     state.retryCount += 1;
     return state;
+  }
+
+  // 只读检索工具：不触发 Validator/Auditor，结果写入 observations 后直接回 Supervisor
+  if (action === "list_dir") {
+    if (!dirPath) {
+      console.warn(
+        chalk.yellow("⚠️ [Executor] list_dir 计划缺少 path 字段，跳过。"),
+      );
+      state.retryCount += 1;
+      return state;
+    }
+    try {
+      const cwd = process.cwd();
+      const normalized = dirPath.startsWith("/") ? dirPath.slice(1) : dirPath;
+      const resolved = path.resolve(cwd, normalized);
+      ensureUnderCwd(resolved);
+      const entries = await readdir(resolved, { withFileTypes: true });
+      const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+      const text = `[list_dir] ${dirPath}\n${lines.join("\n")}`;
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(text);
+      console.log(chalk.cyan("🔍 [Executor] list_dir 已执行，结果已写入 observations。"));
+      state.status = "running";
+      return state;
+    } catch (err) {
+      if (err instanceof SecurityError || err?.name === "SecurityError") {
+        state.errorLog = "🚨 [安全] " + (err.message || "路径被拒绝");
+        state.retryCount += 1;
+        return state;
+      }
+      const msg = err?.message || String(err);
+      console.warn(chalk.yellow("⚠️ [Executor] list_dir 失败: " + msg));
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(`[list_dir] ${dirPath} 错误: ${msg}`);
+      state.status = "running";
+      return state;
+    }
+  }
+
+  if (action === "read_file") {
+    if (!readFilePath) {
+      console.warn(
+        chalk.yellow("⚠️ [Executor] read_file 计划缺少 file 字段，跳过。"),
+      );
+      state.retryCount += 1;
+      return state;
+    }
+    try {
+      const cwd = process.cwd();
+      const normalized = readFilePath.startsWith("/") ? readFilePath.slice(1) : readFilePath;
+      const resolved = path.resolve(cwd, normalized);
+      ensureUnderCwd(resolved);
+      const content = await readFile(resolved, "utf8");
+      const text = `[read_file] ${readFilePath}\n${content}`;
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(text);
+      console.log(chalk.cyan("🔍 [Executor] read_file 已执行，结果已写入 observations。"));
+      state.status = "running";
+      return state;
+    } catch (err) {
+      if (err instanceof SecurityError || err?.name === "SecurityError") {
+        state.errorLog = "🚨 [安全] " + (err.message || "路径被拒绝");
+        state.retryCount += 1;
+        return state;
+      }
+      const msg = err?.message || String(err);
+      console.warn(chalk.yellow("⚠️ [Executor] read_file 失败: " + msg));
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(`[read_file] ${readFilePath} 错误: ${msg}`);
+      state.status = "running";
+      return state;
+    }
+  }
+
+  if (action === "search_code") {
+    if (!searchKeyword || !searchDirPath) {
+      console.warn(
+        chalk.yellow("⚠️ [Executor] search_code 计划缺少 keyword 或 path 字段，跳过。"),
+      );
+      state.retryCount += 1;
+      return state;
+    }
+    try {
+      const cwd = process.cwd();
+      const normalized = searchDirPath.startsWith("/") ? searchDirPath.slice(1) : searchDirPath;
+      const resolved = path.resolve(cwd, normalized);
+      ensureUnderCwd(resolved);
+      const result = await new Promise((resolve, reject) => {
+        const child = spawn("grep", ["-rn", searchKeyword, resolved], { cwd });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => {
+          stdout += d.toString();
+        });
+        child.stderr.on("data", (d) => {
+          stderr += d.toString();
+        });
+        child.on("close", (code) => resolve({ stdout, stderr, code }));
+        child.on("error", reject);
+      });
+      const out = [result.stdout, result.stderr].filter(Boolean).join("\n") || "(无匹配或无输出)";
+      const text = `[search_code] keyword="${searchKeyword}" path=${searchDirPath}\n${out}`;
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(text);
+      console.log(chalk.cyan("🔍 [Executor] search_code 已执行，结果已写入 observations。"));
+      state.status = "running";
+      return state;
+    } catch (err) {
+      if (err instanceof SecurityError || err?.name === "SecurityError") {
+        state.errorLog = "🚨 [安全] " + (err.message || "路径被拒绝");
+        state.retryCount += 1;
+        return state;
+      }
+      const msg = err?.message || String(err);
+      console.warn(chalk.yellow("⚠️ [Executor] search_code 失败: " + msg));
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(`[search_code] keyword="${searchKeyword}" path=${searchDirPath} 错误: ${msg}`);
+      state.status = "running";
+      return state;
+    }
   }
 
   if (action === "run_command") {
@@ -789,11 +1033,12 @@ async function executor(state) {
   }
 
   // 未知或未识别的 action（如历史 edit_function）不执行任何操作，仅记录并重试
-  if (action && action !== "run_command" && action !== "replace_file" && action !== "patch_code") {
+  const knownActions = ["run_command", "replace_file", "patch_code", "list_dir", "read_file", "search_code"];
+  if (action && !knownActions.includes(action)) {
     console.warn(
-      chalk.yellow(`⚠️ [Executor] 未识别的 action: "${action}"，请使用 patch_code、replace_file 或 run_command。`),
+      chalk.yellow(`⚠️ [Executor] 未识别的 action: "${action}"，请使用 patch_code、replace_file、run_command、list_dir、read_file 或 search_code。`),
     );
-    state.errorLog = `Executor 不支持 action "${action}"，请输出 patch_code、replace_file 或 run_command 之一。`;
+    state.errorLog = `Executor 不支持 action "${action}"，请输出上述六种之一。`;
     state.retryCount += 1;
     return state;
   }
