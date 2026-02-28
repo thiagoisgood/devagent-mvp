@@ -234,6 +234,13 @@ function renderExecutionPlan(plan) {
     lines.push(
       `${chalk.bold.white("教训:")} ${chalk.cyan(parsed.lesson)}`,
     );
+  } else if (action === "finish" && typeof parsed.message === "string") {
+    lines.push(
+      `${chalk.bold.white("动作:")} ${chalk.bold.green("finish")}（主动交卷）`,
+    );
+    lines.push(
+      `${chalk.bold.white("说明:")} ${chalk.cyan(parsed.message)}`,
+    );
   } else {
     lines.push(
       chalk.yellow("⚠️ 未能识别标准计划结构，以下为原始内容（已格式化）："),
@@ -332,6 +339,9 @@ async function supervisor(state) {
       "【武器 8：memorize（刻入记忆）】",
       '当你成功修复了一个非常隐蔽的 Bug，或者用户明确要求你记住某条规则时，可调用 memorize 将其永久刻入记忆库。输出格式：{ "action": "memorize", "context": "触发这个教训的场景，如\'升级 React\'", "lesson": "得出的结论或黑名单，如\'绝对不能使用过期的某库\'" }',
       "",
+      "【武器 9：finish（主动交卷）】",
+      '当你已经完全满足了用户的需求（例如：仅仅是查阅了网页并得出结论，或者仅仅是调用 memorize 记住了某条规矩），并且不需要修改任何代码时，**请务必调用 finish 动作来主动结束任务**！不要重复调用已执行过的动作。输出格式：{ "action": "finish", "message": "对用户的最终回复说明" }',
+      "",
       "【Web 查阅策略】",
       "如果你遇到不熟悉的报错、未知的第三方库用法、或者需要查阅最新的官方文档，请毫不犹豫地使用 browse_web 动作去获取外部知识。获取到的网页内容会以 Markdown 格式返回到你的 observations 中。",
       "",
@@ -344,7 +354,7 @@ async function supervisor(state) {
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web"、"memorize" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web"、"memorize"、"finish" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -402,8 +412,14 @@ async function supervisor(state) {
       '  "lesson": "string，得出的结论或黑名单，如 \\"绝对不能使用过期的某库\\""',
       "}",
       "",
+      "当你选择 finish（主动交卷）时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "finish",',
+      '  "message": "string，对用户的最终回复说明"',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url、context、lesson（memorize 时）之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url、context、lesson（memorize 时）、message（finish 时）之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -463,6 +479,9 @@ async function supervisor(state) {
       "【武器 8：memorize（刻入记忆）】",
       '当你成功修复了一个非常隐蔽的 Bug，或者用户明确要求你记住某条规则时，可调用 memorize 将其永久刻入记忆库。输出格式：{ "action": "memorize", "context": "触发这个教训的场景，如\'升级 React\'", "lesson": "得出的结论或黑名单，如\'绝对不能使用过期的某库\'" }',
       "",
+      "【武器 9：finish（主动交卷）】",
+      '当你已经完全满足了用户的需求（例如：仅仅是查阅了网页并得出结论，或者仅仅是调用 memorize 记住了某条规矩），并且不需要修改任何代码时，**请务必调用 finish 动作来主动结束任务**！不要重复调用已执行过的动作。输出格式：{ "action": "finish", "message": "对用户的最终回复说明" }',
+      "",
       "【Web 查阅策略】",
       "如果你遇到不熟悉的报错、未知的第三方库用法、或者需要查阅最新的官方文档，请毫不犹豫地使用 browse_web 动作去获取外部知识。获取到的网页内容会以 Markdown 格式返回到你的 observations 中。",
       "",
@@ -475,7 +494,7 @@ async function supervisor(state) {
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web"、"memorize" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web"、"memorize"、"finish" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -533,8 +552,14 @@ async function supervisor(state) {
       '  "lesson": "string，得出的结论或黑名单，如 \\"绝对不能使用过期的某库\\""',
       "}",
       "",
+      "当你选择 finish（主动交卷）时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "finish",',
+      '  "message": "string，对用户的最终回复说明"',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url、context、lesson（memorize 时）之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url、context、lesson（memorize 时）、message（finish 时）之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -619,6 +644,7 @@ async function executor(state) {
   let browseUrl;
   let memorizeContext;
   let memorizeLesson;
+  let finishMessage;
 
   if (plan && typeof plan === "object") {
     const extractPlan = (value) => {
@@ -692,6 +718,11 @@ async function executor(state) {
       ) {
         memorizeContext = extracted.context;
         memorizeLesson = extracted.lesson;
+      } else if (
+        action === "finish" &&
+        typeof extracted.message === "string"
+      ) {
+        finishMessage = extracted.message;
       }
     }
   }
@@ -704,6 +735,13 @@ async function executor(state) {
     console.warn("当前 plan 内容为:\n", formatPlanDebug(plan));
     state.retryCount += 1;
     return state;
+  }
+
+  // finish：主动交卷，将状态设为 success 以便条件边路由至 END
+  if (action === "finish") {
+    const msg = finishMessage != null ? String(finishMessage).trim() : "(无说明)";
+    console.log(chalk.green("✅ [Executor] 任务已确认完成: " + msg));
+    return { ...state, status: "success" };
   }
 
   // memorize：将教训写入 SQLite 记忆库，observations 追加日志后回 Supervisor
@@ -720,6 +758,9 @@ async function executor(state) {
       if (!Array.isArray(state.observations)) state.observations = [];
       state.observations.push(
         "🧠 [Memory] 已将该教训永久刻入 SQLite 记忆库",
+      );
+      state.observations.push(
+        "系统反馈：记忆已成功刻入 SQLite。如果用户没有其他编码需求，你可以调用 finish 动作结束任务了。",
       );
       console.log(
         chalk.magenta("🧠 [Memory] 已将该教训永久刻入 SQLite 记忆库"),
