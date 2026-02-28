@@ -214,6 +214,11 @@ function renderExecutionPlan(plan) {
     );
     lines.push(`${chalk.bold.white("关键词:")} ${chalk.cyan(parsed.keyword)}`);
     lines.push(`${chalk.bold.white("范围:")} ${chalk.cyan(parsed.path)}`);
+  } else if (action === "browse_web" && typeof parsed.url === "string") {
+    lines.push(
+      `${chalk.bold.white("动作:")} ${chalk.bold.blue("browse_web")}（联网查阅）`,
+    );
+    lines.push(`${chalk.bold.white("URL:")} ${chalk.cyan(parsed.url)}`);
   } else {
     lines.push(
       chalk.yellow("⚠️ 未能识别标准计划结构，以下为原始内容（已格式化）："),
@@ -294,6 +299,12 @@ async function supervisor(state) {
       "【武器 6：search_code（全局搜索）】",
       '- 在指定目录下全局搜索某个函数名或变量名。输出格式：{ "action": "search_code", "keyword": "搜索关键词", "path": "搜索范围目录（相对路径）" }',
       "",
+      "【武器 7：browse_web（联网查阅）】",
+      '- 用于访问外网获取文档、报错说明或第三方库用法。输出格式：{ "action": "browse_web", "url": "你想访问的完整URL(如 https://react.dev/)" }',
+      "",
+      "【Web 查阅策略】",
+      "如果你遇到不熟悉的报错、未知的第三方库用法、或者需要查阅最新的官方文档，请毫不犹豫地使用 browse_web 动作去获取外部知识。获取到的网页内容会以 Markdown 格式返回到你的 observations 中。",
+      "",
       "【Agentic Search 策略】",
       "在决定修改代码之前，如果你对项目结构或相关函数定义不清晰，请优先使用上述 list_dir、read_file、search_code 三种工具来收集上下文。收集到的信息会返回给你（observations），你可以据此再进行下一步动作。",
       "",
@@ -303,7 +314,7 @@ async function supervisor(state) {
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -348,8 +359,14 @@ async function supervisor(state) {
       '  "path": "string，搜索范围目录相对路径，例如 \\"src\\"、\\"sandbox\\""',
       "}",
       "",
+      "当你选择 browse_web 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "browse_web",',
+      '  "url": "string，你想访问的完整 URL，例如 \\"https://react.dev/\\""',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword 之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url 之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -402,6 +419,12 @@ async function supervisor(state) {
       "【武器 6：search_code（全局搜索）】",
       '- 在指定目录下全局搜索某个函数名或变量名。输出格式：{ "action": "search_code", "keyword": "搜索关键词", "path": "搜索范围目录（相对路径）" }',
       "",
+      "【武器 7：browse_web（联网查阅）】",
+      '- 用于访问外网获取文档、报错说明或第三方库用法。输出格式：{ "action": "browse_web", "url": "你想访问的完整URL(如 https://react.dev/)" }',
+      "",
+      "【Web 查阅策略】",
+      "如果你遇到不熟悉的报错、未知的第三方库用法、或者需要查阅最新的官方文档，请毫不犹豫地使用 browse_web 动作去获取外部知识。获取到的网页内容会以 Markdown 格式返回到你的 observations 中。",
+      "",
       "【Agentic Search 策略】",
       "在决定修改代码之前，如果你对项目结构或相关函数定义不清晰，请优先使用上述 list_dir、read_file、search_code 三种工具来收集上下文。收集到的信息会返回给你（observations），你可以据此再进行下一步动作。",
       "",
@@ -411,7 +434,7 @@ async function supervisor(state) {
       "",
       "【输出格式的强制要求（三模指令）】",
       "- 你**只能**输出一个 JSON 对象，绝不能输出多段或数组，也不能在前后添加多余解释文字。",
-      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code" 之一。',
+      '- 该 JSON 对象必须包含一个字段 action，且只能是 "patch_code"、"replace_file"、"run_command"、"list_dir"、"read_file"、"search_code"、"browse_web" 之一。',
       "",
       "当你选择 patch_code（局部替换）时，输出格式必须**严格**为：",
       "{",
@@ -456,8 +479,14 @@ async function supervisor(state) {
       '  "path": "string，搜索范围目录相对路径，例如 \\"src\\"、\\"sandbox\\""',
       "}",
       "",
+      "当你选择 browse_web 时，输出格式必须**严格**为：",
+      "{",
+      '  "action": "browse_web",',
+      '  "url": "string，你想访问的完整 URL，例如 \\"https://react.dev/\\""',
+      "}",
+      "",
       "【绝对禁止的行为】",
-      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword 之外的任何字段。",
+      "- 不允许输出除 action、thought、file、search_block、replace_block、new_code、command、path、keyword、url 之外的任何字段。",
       "- 尤其**禁止**出现以下字段（或其英文 / 变体）：steps、step、actions、description、desc、analysis、plan、tool、tools、tool_calls、id、name、role、content、code 等一切无关字段。",
       "- 不允许输出 Markdown 代码块标记，例如 ```、```json、```js 等。",
       "- 不允许在 JSON 前后添加任何解释性文本、自然语言描述、前缀、后缀、标签等。",
@@ -539,6 +568,7 @@ async function executor(state) {
   let readFilePath;
   let searchKeyword;
   let searchDirPath;
+  let browseUrl;
 
   if (plan && typeof plan === "object") {
     const extractPlan = (value) => {
@@ -600,6 +630,11 @@ async function executor(state) {
       ) {
         searchKeyword = extracted.keyword;
         searchDirPath = extracted.path;
+      } else if (
+        action === "browse_web" &&
+        typeof extracted.url === "string"
+      ) {
+        browseUrl = extracted.url;
       }
     }
   }
@@ -751,6 +786,38 @@ async function executor(state) {
       );
       state.status = "running";
       return state;
+    }
+  }
+
+  // 只读联网工具：通过 r.jina.ai 获取网页 Markdown，截断防爆破，不触发 Validator
+  if (action === "browse_web") {
+    if (!browseUrl) {
+      console.warn(
+        chalk.yellow("⚠️ [Executor] browse_web 计划缺少 url 字段，跳过。"),
+      );
+      state.retryCount += 1;
+      return state;
+    }
+    try {
+      console.log(
+        chalk.cyan(`🌐 [Executor] 正在联网读取网页: ${browseUrl} ...`),
+      );
+      const response = await fetch("https://r.jina.ai/" + browseUrl);
+      const markdownContent = await response.text();
+      const truncatedContent = markdownContent.slice(0, 8000);
+      const text = `\n\n[来自 ${browseUrl} 的网页内容]:\n${truncatedContent}`;
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(text);
+      console.log(
+        chalk.cyan("🌐 [Executor] 网页内容已写入 observations，已交还 Supervisor。"),
+      );
+      return { ...state, status: "running" };
+    } catch (err) {
+      const msg = err?.message || String(err);
+      console.warn(chalk.yellow("⚠️ [Executor] browse_web 失败: " + msg));
+      if (!Array.isArray(state.observations)) state.observations = [];
+      state.observations.push(`[browse_web] ${browseUrl} 错误: ${msg}`);
+      return { ...state, status: "running" };
     }
   }
 
@@ -1070,11 +1137,12 @@ async function executor(state) {
     "list_dir",
     "read_file",
     "search_code",
+    "browse_web",
   ];
   if (action && !knownActions.includes(action)) {
     console.warn(
       chalk.yellow(
-        `⚠️ [Executor] 未识别的 action: "${action}"，请使用 patch_code、replace_file、run_command、list_dir、read_file 或 search_code。`,
+        `⚠️ [Executor] 未识别的 action: "${action}"，请使用 patch_code、replace_file、run_command、list_dir、read_file、search_code 或 browse_web。`,
       ),
     );
     state.errorLog = `Executor 不支持 action "${action}"，请输出上述六种之一。`;
