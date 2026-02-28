@@ -1,8 +1,8 @@
 import { askAI } from "./llm.js";
 import { getBlacklist } from "./memory.js";
 import { getAllMemories, saveMemory } from "../memory/db.js";
-import { access, writeFile, readdir, readFile } from "fs/promises";
-import path from "path";
+import { access, writeFile, readdir, readFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
@@ -1067,6 +1067,10 @@ async function executor(state) {
         throw new SecurityError(`[语义审计拦截] ${audit.reason}`);
       }
 
+      // 父目录不存在时 writeFile 会 ENOENT，先递归创建所有缺失父目录
+      const dirPath = path.dirname(targetPath);
+      await mkdir(dirPath, { recursive: true });
+
       await writeFile(targetPath, newCode, "utf8");
       console.log(
         "\x1b[32m%s\x1b[0m",
@@ -1193,6 +1197,10 @@ async function executor(state) {
       if (!audit.is_safe) {
         throw new SecurityError(`[语义审计拦截] ${audit.reason}`);
       }
+
+      // 若目标路径为新文件或父目录缺失，patch 前先确保父目录存在，避免后续写入 ENOENT
+      const patchDirPath = path.dirname(targetPath);
+      await mkdir(patchDirPath, { recursive: true });
 
       await patchFile(targetPath, searchBlock, replaceBlock);
       console.log(

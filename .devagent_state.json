@@ -93,5 +93,10 @@
     "errorLog": "Command failed: Command failed: docker pull node:24-alpine\nError response from daemon: Head \"https://registry-1.docker.io/v2/library/node/manifests/24-alpine\": unable to decode token response: unexpected EOF\n\n[STDERR 输出]:\nError response from daemon: Head \"https://registry-1.docker.io/v2/library/node/manifests/24-alpine\": unable to decode token response: unexpected EOF\n",
     "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
     "timestamp": "2026-02-28T14:07:17.884Z"
+  },
+  {
+    "errorLog": "ENOENT: no such file or directory, open '/Users/thiago/program/family/devagent-mvp/sandbox/testBomb.js'",
+    "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
+    "timestamp": "2026-02-28T14:13:02.740Z"
   }
 ]
