@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-import { exec } from "child_process";
-import { promisify } from "util";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { createCheckpoint, rollback } from "../security/gitRollback.js";
+import { runInSandbox } from "../security/sandbox.js";
 import { appGraph } from "../core/graph.js";
 import { getStagedDiff, getProjectTree } from "../core/contextFetcher.js";
 import { addBlacklist } from "../core/memory.js";
 import { askModelChoice, showSpinner } from "./ui.js";
-
-const execAsync = promisify(exec);
 
 const VERIFY_TIMEOUT_MS = 10000;
 
@@ -235,9 +232,17 @@ async function main() {
     console.log(
       chalk.cyan(`🏃‍♂️ 阶段二：正在执行验证命令: ${chalk.bold(verifyCommand)}`),
     );
+    console.log(
+      chalk.blue("🐳 [Sandbox] 已将测试命令关入 Docker 隔离沙盒中执行..."),
+    );
 
     try {
-      await execAsync(verifyCommand, { timeout: VERIFY_TIMEOUT_MS });
+      const { stdout, stderr } = await runInSandbox(
+        verifyCommand,
+        VERIFY_TIMEOUT_MS,
+      );
+      if (stdout) process.stdout.write(stdout);
+      if (stderr) process.stderr.write(stderr);
       console.log(chalk.green("✅ 完美通过验证！大闭环结束！"));
       isResolved = true;
       break;
