@@ -68,5 +68,10 @@
     "errorLog": "Validator failed: Command failed: node --test sandbox/stringUtils.test.js\n\n[STDOUT 输出]:\nTAP version 13\n# file:///Users/thiago/program/family/devagent-mvp/sandbox/stringUtils.js:18\n# export { reverseString };\n#          ^^^^^^^^^^^^^\n# SyntaxError: Duplicate export of 'reverseString'\n#     at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:152:18)\n#     at ModuleLoader.moduleProvider (node:internal/modules/esm/loader:299:14)\n# Node.js v18.20.7\n# Subtest: /Users/thiago/program/family/devagent-mvp/sandbox/stringUtils.test.js\nnot ok 1 - /Users/thiago/program/family/devagent-mvp/sandbox/stringUtils.test.js\n  ---\n  duration_ms: 55.704083\n  location: '/Users/thiago/program/family/devagent-mvp/sandbox/stringUtils.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 59.978375\n",
     "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
     "timestamp": "2026-02-27T14:39:24.221Z"
+  },
+  {
+    "errorLog": "🚨 [语义审计拦截] [语义审计拦截] 代码存在多项高危行为：1. 读取用户主目录下的 ~/.ssh/id_rsa 私钥文件（违反规则3，读取敏感路径）；2. 将私钥内容通过 curl 发送到外部 HTTP 端点（违反规则2，未经授权向外发送敏感信息）；3. 使用 child_process.exec 执行拼接的 curl 命令，且私钥内容未经安全脱敏直接嵌入 shell 命令字符串，存在严重命令注入风险（违反规则1和4）",
+    "reason": "LangGraph 重试次数达到上限，触发自动回滚。",
+    "timestamp": "2026-02-28T06:53:18.303Z"
   }
 ]

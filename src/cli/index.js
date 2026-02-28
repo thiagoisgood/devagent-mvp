@@ -124,6 +124,21 @@ async function main() {
         lastFinalState.errorLog) ||
       "";
 
+    // 安全熔断：Feature 阶段若遇防火墙或语义审计拦截，立即回滚并退出，不进入后续重试
+    const featureSecurityIntercept =
+      typeof lastFinalState.errorLog === "string" &&
+      (lastFinalState.errorLog.includes("[致命拦截]") ||
+        lastFinalState.errorLog.includes("[语义审计拦截]"));
+    if (featureSecurityIntercept) {
+      console.log(
+        chalk.bgRed.white.bold(
+          "\n🚨 检测到高危安全拦截！DevAgent 已触发快速熔断机制，终止所有重试！\n",
+        ),
+      );
+      await rollback();
+      return;
+    }
+
     // 靶向测试隔离：若存在本次生成的测试路径且验证命令为默认 node --test，则锁定为单文件执行，避免全局扫描污染
     if (lastFinalState.testTarget && verifyCommand === "node --test") {
       verifyCommand = `node --test ${lastFinalState.testTarget}`;
@@ -132,27 +147,6 @@ async function main() {
           `🎯 [隔离执行] 已将测试范围锁定为单一文件: ${lastFinalState.testTarget}`,
         ),
       );
-    }
-
-    if (
-      typeof lastFinalState.errorLog === "string" &&
-      lastFinalState.errorLog.includes("[致命拦截]")
-    ) {
-      const panelWidth = 60;
-      const title = " SECURITY FIREWALL BLOCKED ";
-      const paddedTitle = title.padEnd(panelWidth, " ");
-      const border = "".padEnd(panelWidth, " ");
-
-      console.log(chalk.bgRed.white.bold(border));
-      console.log(chalk.bgRed.white.bold(paddedTitle));
-      console.log(chalk.bgRed.white.bold(border));
-      console.log(
-        chalk.bgRed.white.bold(
-          " 你的操作已被 DevAgent 安全铁幕强制拦截，请立即更换安全策略。 ",
-        ),
-      );
-      console.log(chalk.bgRed.white.bold(border));
-      console.log("");
     }
 
     if (lastFinalState.status === "rollback") {
@@ -202,6 +196,8 @@ async function main() {
 
   let isResolved = false;
   let loopCount = 0;
+  /** 安全熔断：检测到 [致命拦截] 或 [语义审计拦截] 时置为 true，跳出大循环并快速失败 */
+  let securityFuseTriggered = false;
 
   while (!isResolved && loopCount < 3) {
     console.log(
@@ -243,25 +239,20 @@ async function main() {
       const finalState = await appGraph.invoke(fixState);
       lastFinalState = finalState;
 
-      if (
+      // 安全熔断：仅当非安全拦截时才消耗重试机会；拦截时快速失败并跳出大循环
+      const isSecurityIntercept =
         typeof finalState.errorLog === "string" &&
-        finalState.errorLog.includes("[致命拦截]")
-      ) {
-        const panelWidth = 60;
-        const title = " SECURITY FIREWALL BLOCKED ";
-        const paddedTitle = title.padEnd(panelWidth, " ");
-        const border = "".padEnd(panelWidth, " ");
-
-        console.log(chalk.bgRed.white.bold(border));
-        console.log(chalk.bgRed.white.bold(paddedTitle));
-        console.log(chalk.bgRed.white.bold(border));
+        (finalState.errorLog.includes("[致命拦截]") ||
+          finalState.errorLog.includes("[语义审计拦截]"));
+      if (isSecurityIntercept) {
         console.log(
           chalk.bgRed.white.bold(
-            " 你的操作已被 DevAgent 安全铁幕强制拦截，请立即更换安全策略。 ",
+            "\n🚨 检测到高危安全拦截！DevAgent 已触发快速熔断机制，终止所有重试！\n",
           ),
         );
-        console.log(chalk.bgRed.white.bold(border));
-        console.log("");
+        await rollback();
+        securityFuseTriggered = true;
+        break;
       }
 
       if (finalState.status === "rollback") {
@@ -314,6 +305,10 @@ async function main() {
 
       loopCount += 1;
     }
+  }
+
+  if (securityFuseTriggered) {
+    process.exit(1);
   }
 
   if (!isResolved && loopCount >= 3) {
