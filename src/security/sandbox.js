@@ -1,3 +1,11 @@
+/*
+ * @Author: Thiago
+ * @Date: 2026-02-28 18:52:44
+ * @LastEditors: Thiago
+ * @LastEditTime: 2026-02-28 21:27:52
+ * @FilePath: /devagent-mvp/src/security/sandbox.js
+ * @Description:
+ */
 /**
  * Docker 安全沙盒执行器：所有验证命令在资源受限的容器内执行，避免在宿主机直接跑不可信命令。
  * @module security/sandbox
@@ -9,7 +17,7 @@ import chalk from "chalk";
 
 const execAsync = promisify(exec);
 
-const DOCKER_IMAGE = "node:18-alpine";
+const DOCKER_IMAGE = "node:22-alpine";
 const MEMORY_LIMIT = "512m";
 const CPU_LIMIT = "1.0";
 
