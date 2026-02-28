@@ -871,6 +871,7 @@ async function executor(state) {
       // 语义级审计：在物理写入前由 LLM 审查代码是否包含高危模式（命令执行、敏感路径、未授权网络等）
       const audit = await auditCodeChange({
         action: "replace_file",
+        file,
         new_code: newCode,
       });
       if (!audit.is_safe) {
@@ -997,6 +998,7 @@ async function executor(state) {
       // 语义级审计：在 patch 前由 LLM 审查 replace_block 是否包含高危模式
       const audit = await auditCodeChange({
         action: "patch_code",
+        file,
         replace_block: replaceBlock,
       });
       if (!audit.is_safe) {

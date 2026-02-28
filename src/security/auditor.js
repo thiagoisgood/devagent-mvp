@@ -31,13 +31,19 @@ export async function auditCodeChange(plan) {
     "3. 试图读取、修改或删除 .env、~/.ssh、/etc/passwd、或项目之外的绝对路径文件（如 /tmp、/home、C:\\ 等）。",
     "4. 使用 eval、Function 构造函数、或其它动态执行用户可控/不可信输入的方式。",
     "",
-    "若未发现上述高危模式，则 is_safe 为 true，reason 简要说明「未发现高危行为」即可。",
+    "【安全豁免特例】豁免规则：如果目标文件是以 .test.js 或 .spec.js 结尾的测试文件，允许适度使用 child_process.spawn 用于 CLI 模拟测试，但仍严禁 curl 或下载外部恶意脚本。",
+    "",
+    "若未发现上述高危模式（或符合豁免特例且无其它违规），则 is_safe 为 true，reason 简要说明「未发现高危行为」即可。",
     "",
     "你必须只输出一个 JSON 对象，不要包含 Markdown 代码块或其它文字。格式严格为：",
     '{"is_safe": true 或 false, "reason": "审查理由（中文）"}',
   ].join("\n");
 
-  const usr = `请审查以下即将写入文件的代码：\n\n\`\`\`\n${codeToAudit}\n\`\`\``;
+  const fileHint =
+    typeof plan?.file === "string" && plan.file.trim()
+      ? `当前目标文件：${plan.file.trim()}\n\n`
+      : "";
+  const usr = `${fileHint}请审查以下即将写入文件的代码：\n\n\`\`\`\n${codeToAudit}\n\`\`\``;
 
   let raw;
   try {
