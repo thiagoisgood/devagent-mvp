@@ -1,7 +1,10 @@
 {
-  "name": "devagent-mvp",
+  "name": "devagent",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/cli/index.js",
+  "bin": {
+    "devagent": "./src/cli/index.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

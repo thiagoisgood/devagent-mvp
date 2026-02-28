@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+
+import { createRequire } from "node:module";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { createCheckpoint, rollback } from "../security/gitRollback.js";
@@ -7,6 +9,21 @@ import { appGraph } from "../core/graph.js";
 import { getStagedDiff, getProjectTree } from "../core/contextFetcher.js";
 import { addBlacklist } from "../core/memory.js";
 import { askModelChoice, showSpinner } from "./ui.js";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json");
+
+const args = process.argv.slice(2);
+if (args.includes("--version") || args.includes("-v")) {
+  console.log("v" + (pkg.version || "0.0.0"));
+  process.exit(0);
+}
+// 仅在不带任何参数时进入主程序；带其它参数则提示用法并退出
+if (args.length > 0) {
+  console.error("Usage: devagent");
+  console.error("       devagent --version | -v");
+  process.exit(1);
+}
 
 const VERIFY_TIMEOUT_MS = 10000;
 
