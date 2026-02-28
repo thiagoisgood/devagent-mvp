@@ -12,6 +12,7 @@ import {
   validateFileAccess,
   SecurityError,
 } from "../security/firewall.js";
+import { auditCodeChange } from "../security/auditor.js";
 
 const execAsync = promisify(exec);
 
@@ -579,6 +580,15 @@ async function executor(state) {
         throw error;
       }
 
+      // 语义级审计：在物理写入前由 LLM 审查代码是否包含高危模式（命令执行、敏感路径、未授权网络等）
+      const audit = await auditCodeChange({
+        action: "replace_file",
+        new_code: newCode,
+      });
+      if (!audit.is_safe) {
+        throw new SecurityError(`[语义审计拦截] ${audit.reason}`);
+      }
+
       await writeFile(targetPath, newCode, "utf8");
       console.log(
         "\x1b[32m%s\x1b[0m",
@@ -624,6 +634,15 @@ async function executor(state) {
         );
       }
     } catch (error) {
+      if (error instanceof SecurityError || error?.name === "SecurityError") {
+        state.errorLog =
+          "🚨 [语义审计拦截] " +
+          (error.message ||
+            "代码包含高危风险，已被安全审计员拦截。请更换安全方案。");
+        renderSecurityBlockPanel();
+        state.retryCount += 1;
+        return state;
+      }
       console.error(
         "\x1b[31m%s\x1b[0m",
         "❌ [Executor] replace_file 写入文件失败：",
@@ -692,6 +711,15 @@ async function executor(state) {
         throw error;
       }
 
+      // 语义级审计：在 patch 前由 LLM 审查 replace_block 是否包含高危模式
+      const audit = await auditCodeChange({
+        action: "patch_code",
+        replace_block: replaceBlock,
+      });
+      if (!audit.is_safe) {
+        throw new SecurityError(`[语义审计拦截] ${audit.reason}`);
+      }
+
       await patchFile(targetPath, searchBlock, replaceBlock);
       console.log(
         "\x1b[32m%s\x1b[0m",
@@ -736,6 +764,15 @@ async function executor(state) {
         );
       }
     } catch (error) {
+      if (error instanceof SecurityError || error?.name === "SecurityError") {
+        state.errorLog =
+          "🚨 [语义审计拦截] " +
+          (error.message ||
+            "替换块包含高危风险，已被安全审计员拦截。请更换安全方案。");
+        renderSecurityBlockPanel();
+        state.retryCount += 1;
+        return state;
+      }
       const hint =
         error?.message ||
         "patch_code 执行失败，请确保 search_block 与文件内容（含空格与缩进）完全一致，或改用 replace_file 全量覆盖。";
