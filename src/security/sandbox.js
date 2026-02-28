@@ -2,7 +2,7 @@
  * @Author: Thiago
  * @Date: 2026-02-28 18:52:44
  * @LastEditors: Thiago
- * @LastEditTime: 2026-02-28 21:27:52
+ * @LastEditTime: 2026-02-28 22:08:56
  * @FilePath: /devagent-mvp/src/security/sandbox.js
  * @Description:
  */
@@ -43,7 +43,7 @@ export async function runInSandbox(command, timeoutMs = 10000) {
   // 首次运行拉取镜像可能较久，提前提醒避免用户误判为死循环或 CLI 卡死
   console.log(
     chalk.blue(
-      "🐳 [Sandbox] 如果是首次运行，Docker 可能会因为下载 node:18-alpine 镜像而花费较长时间，此时可能会触发超时。",
+      "🐳 [Sandbox] 如果是首次运行，Docker 可能会因为下载 node:24-alpine 镜像而花费较长时间，此时可能会触发超时。",
     ),
   );
 
