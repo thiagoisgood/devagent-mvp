@@ -17,10 +17,9 @@ export async function rollback() {
         // 1. 恢复被修改的文件内容
         await git.reset(['--hard']);
         
-        // 2. 清理多余文件，但打上“免死金牌” (-e = exclude)
-        // 绝对不能删除依赖、环境变量、以及 AI 的黑名单记忆库！
+        // 2. 清理多余文件（仅文件，不删除目录），并打上“免死金牌” (-e = exclude)
+        // 绝对不能删除依赖、环境变量、AI 的黑名单记忆库，以及任何未追踪目录结构！
         await git.clean('f', [
-            '-d', 
             '-e', 'node_modules', 
             '-e', '.env', 
             '-e', '.devagent_state.json'
