@@ -146,11 +146,11 @@ async function main() {
         lastFinalState.errorLog) ||
       "";
 
-    // 主动交卷：纯记忆/查阅任务未修改任何物理文件，跳过后续测试验证
-    if (lastFinalState.status === "success") {
+    // 主动交卷：仅当专属状态 interaction_completed 时短路，不误杀正常“写完代码跑测试”的 success 流程
+    if (lastFinalState.status === "interaction_completed") {
       console.log(
         chalk.green(
-          "✅ 流程结束：AI 已完成交互任务，未进行代码变更，跳过后续测试验证。",
+          "✅ 流程结束：AI 已完成交互任务，无需更改代码，跳过后续测试验证。",
         ),
       );
       process.exit(0);
@@ -265,11 +265,11 @@ async function main() {
       const finalState = await appGraph.invoke(fixState);
       lastFinalState = finalState;
 
-      // 主动交卷：纯记忆/查阅任务未修改任何物理文件，跳过后续测试验证
-      if (finalState.status === "success") {
+      // 主动交卷：仅当专属状态 interaction_completed 时短路，不误杀正常“写完代码跑测试”的 success 流程
+      if (finalState.status === "interaction_completed") {
         console.log(
           chalk.green(
-            "✅ 流程结束：AI 已完成交互任务，未进行代码变更，跳过后续测试验证。",
+            "✅ 流程结束：AI 已完成交互任务，无需更改代码，跳过后续测试验证。",
           ),
         );
         process.exit(0);
