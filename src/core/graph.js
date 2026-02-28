@@ -476,6 +476,7 @@ async function executor(state) {
       if (error instanceof SecurityError || error?.name === "SecurityError") {
         state.errorLog =
           "🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！";
+        state.status = "fatal_security";
         renderSecurityBlockPanel();
         state.retryCount += 1;
         return state;
@@ -573,6 +574,7 @@ async function executor(state) {
         if (error instanceof SecurityError || error?.name === "SecurityError") {
           state.errorLog =
             "🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！";
+          state.status = "fatal_security";
           renderSecurityBlockPanel();
           state.retryCount += 1;
           return state;
@@ -639,6 +641,7 @@ async function executor(state) {
           "🚨 [语义审计拦截] " +
           (error.message ||
             "代码包含高危风险，已被安全审计员拦截。请更换安全方案。");
+        state.status = "fatal_security";
         renderSecurityBlockPanel();
         state.retryCount += 1;
         return state;
@@ -704,6 +707,7 @@ async function executor(state) {
         if (error instanceof SecurityError || error?.name === "SecurityError") {
           state.errorLog =
             "🚨 [致命拦截] 你的计划触发了系统的最高级安全防火墙！已被强行阻断。请立刻更换安全且合规的修复策略！";
+          state.status = "fatal_security";
           renderSecurityBlockPanel();
           state.retryCount += 1;
           return state;
@@ -769,6 +773,7 @@ async function executor(state) {
           "🚨 [语义审计拦截] " +
           (error.message ||
             "替换块包含高危风险，已被安全审计员拦截。请更换安全方案。");
+        state.status = "fatal_security";
         renderSecurityBlockPanel();
         state.retryCount += 1;
         return state;
@@ -902,10 +907,15 @@ const workflow = {
           } else {
             await supervisor(state);
           }
-          if (state.status === "rollback") {
+          // 物理级刹车：安全拦截或重试耗尽时立即跳出状态机，不再进入下一轮 supervisor
+          if (state.status === "rollback" || state.status === "fatal_security") {
             break;
           }
           await executor(state);
+          // executor 内可能将 status 置为 fatal_security，需再次检查后立即跳出，避免下一轮再次进入 supervisor
+          if (state.status === "fatal_security") {
+            break;
+          }
         }
 
         return state;
