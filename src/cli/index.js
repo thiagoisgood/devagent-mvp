@@ -11,6 +11,28 @@ import { askModelChoice, showSpinner } from "./ui.js";
 
 const execAsync = promisify(exec);
 
+const VERIFY_TIMEOUT_MS = 10000;
+
+/** 判断是否为超时/终止类错误（用于保留案发现场 stdout/stderr，交给 AI 推断） */
+function isVerifyTimeoutOrKilled(error) {
+  if (!error || typeof error !== "object") return false;
+  if (error.killed === true) return true;
+  if (error.signal === "SIGTERM" || error.signal === "SIGKILL") return true;
+  if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return true;
+  if (String(error.code || "").toLowerCase().includes("timeout")) return true;
+  return false;
+}
+
+/** 拼装启发式错误日志：超时/终止时保留案发现场，不写死结论，交给大模型推断 */
+function buildVerifyErrorLog(error) {
+  const stdoutLog = error.stdout ? `\n[STDOUT 输出]:\n${error.stdout}` : "";
+  const stderrLog = error.stderr ? `\n[STDERR 输出]:\n${error.stderr}` : "";
+  if (isVerifyTimeoutOrKilled(error)) {
+    return `命令执行被终止（超时或信号）。以下是终止前捕获的输出，请根据此推断当时状态并给出修复建议：${stdoutLog || "\n[STDOUT]: (无)"}${stderrLog || "\n[STDERR]: (无)"}`;
+  }
+  return `Command failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
+}
+
 async function main() {
   const model = await askModelChoice();
   console.log(`已选择模型: ${model}`);
@@ -19,7 +41,7 @@ async function main() {
     {
       type: "list",
       name: "taskMode",
-      message: "请选择当前的任务模式：",
+      message: "Please select the current task mode:",
       choices: [
         {
           name: "✨ 需求开发 (Feature)",
@@ -205,18 +227,12 @@ async function main() {
     );
 
     try {
-      await execAsync(verifyCommand);
+      await execAsync(verifyCommand, { timeout: VERIFY_TIMEOUT_MS });
       console.log(chalk.green("✅ 完美通过验证！大闭环结束！"));
       isResolved = true;
       break;
     } catch (error) {
-      const stdoutLog = error.stdout
-        ? `\n[STDOUT 输出]:\n${error.stdout}`
-        : "";
-      const stderrLog = error.stderr
-        ? `\n[STDERR 输出]:\n${error.stderr}`
-        : "";
-      const realErrorLog = `Command failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
+      const realErrorLog = buildVerifyErrorLog(error);
       lastRealErrorLog = realErrorLog;
 
       console.log(

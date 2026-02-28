@@ -16,6 +16,37 @@ import { auditCodeChange } from "../security/auditor.js";
 
 const execAsync = promisify(exec);
 
+const EXEC_TIMEOUT_MS = 10000;
+
+/**
+ * 判断 exec 抛错是否由超时/终止引起（案发现场保留场景）。
+ * @param {object} error - exec 回调或 execAsync 抛出的错误
+ * @returns {boolean}
+ */
+function isExecTimeoutOrKilled(error) {
+  if (!error || typeof error !== "object") return false;
+  if (error.killed === true) return true;
+  if (error.signal === "SIGTERM" || error.signal === "SIGKILL") return true;
+  if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return true;
+  if (String(error.code || "").toLowerCase().includes("timeout")) return true;
+  return false;
+}
+
+/**
+ * 根据 exec 错误拼装送给大模型的错误日志：超时/终止时保留 stdout/stderr 作为案发现场，由 AI 自行推断，不写死结论。
+ * @param {object} error - execAsync 抛出的错误（含 stdout、stderr）
+ * @param {string} [prefix] - 前缀，如 "Command failed" 或 "Validator failed"
+ * @returns {string}
+ */
+function buildExecErrorLog(error, prefix = "Command failed") {
+  const stdoutLog = error.stdout ? `\n[STDOUT 输出]:\n${error.stdout}` : "";
+  const stderrLog = error.stderr ? `\n[STDERR 输出]:\n${error.stderr}` : "";
+  if (isExecTimeoutOrKilled(error)) {
+    return `${prefix}: 命令执行被终止（超时或信号）。以下是终止前捕获的输出，请根据此推断当时状态并给出修复建议：${stdoutLog || "\n[STDOUT]: (无)"}${stderrLog || "\n[STDERR]: (无)"}`;
+  }
+  return `${prefix}: ${error.message || ""}${stdoutLog}${stderrLog}` || "";
+}
+
 /**
  * 确保解析后的路径位于 cwd 之下，防止路径穿越（只读检索用）。
  * @param {string} resolvedPath - 已 resolve 的绝对路径
@@ -598,11 +629,15 @@ async function executor(state) {
       const resolved = path.resolve(cwd, normalized);
       ensureUnderCwd(resolved);
       const entries = await readdir(resolved, { withFileTypes: true });
-      const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+      const lines = entries.map((e) =>
+        e.isDirectory() ? `${e.name}/` : e.name,
+      );
       const text = `[list_dir] ${dirPath}\n${lines.join("\n")}`;
       if (!Array.isArray(state.observations)) state.observations = [];
       state.observations.push(text);
-      console.log(chalk.cyan("🔍 [Executor] list_dir 已执行，结果已写入 observations。"));
+      console.log(
+        chalk.cyan("🔍 [Executor] list_dir 已执行，结果已写入 observations。"),
+      );
       state.status = "running";
       return state;
     } catch (err) {
@@ -630,14 +665,18 @@ async function executor(state) {
     }
     try {
       const cwd = process.cwd();
-      const normalized = readFilePath.startsWith("/") ? readFilePath.slice(1) : readFilePath;
+      const normalized = readFilePath.startsWith("/")
+        ? readFilePath.slice(1)
+        : readFilePath;
       const resolved = path.resolve(cwd, normalized);
       ensureUnderCwd(resolved);
       const content = await readFile(resolved, "utf8");
       const text = `[read_file] ${readFilePath}\n${content}`;
       if (!Array.isArray(state.observations)) state.observations = [];
       state.observations.push(text);
-      console.log(chalk.cyan("🔍 [Executor] read_file 已执行，结果已写入 observations。"));
+      console.log(
+        chalk.cyan("🔍 [Executor] read_file 已执行，结果已写入 observations。"),
+      );
       state.status = "running";
       return state;
     } catch (err) {
@@ -658,14 +697,18 @@ async function executor(state) {
   if (action === "search_code") {
     if (!searchKeyword || !searchDirPath) {
       console.warn(
-        chalk.yellow("⚠️ [Executor] search_code 计划缺少 keyword 或 path 字段，跳过。"),
+        chalk.yellow(
+          "⚠️ [Executor] search_code 计划缺少 keyword 或 path 字段，跳过。",
+        ),
       );
       state.retryCount += 1;
       return state;
     }
     try {
       const cwd = process.cwd();
-      const normalized = searchDirPath.startsWith("/") ? searchDirPath.slice(1) : searchDirPath;
+      const normalized = searchDirPath.startsWith("/")
+        ? searchDirPath.slice(1)
+        : searchDirPath;
       const resolved = path.resolve(cwd, normalized);
       ensureUnderCwd(resolved);
       const result = await new Promise((resolve, reject) => {
@@ -681,11 +724,17 @@ async function executor(state) {
         child.on("close", (code) => resolve({ stdout, stderr, code }));
         child.on("error", reject);
       });
-      const out = [result.stdout, result.stderr].filter(Boolean).join("\n") || "(无匹配或无输出)";
+      const out =
+        [result.stdout, result.stderr].filter(Boolean).join("\n") ||
+        "(无匹配或无输出)";
       const text = `[search_code] keyword="${searchKeyword}" path=${searchDirPath}\n${out}`;
       if (!Array.isArray(state.observations)) state.observations = [];
       state.observations.push(text);
-      console.log(chalk.cyan("🔍 [Executor] search_code 已执行，结果已写入 observations。"));
+      console.log(
+        chalk.cyan(
+          "🔍 [Executor] search_code 已执行，结果已写入 observations。",
+        ),
+      );
       state.status = "running";
       return state;
     } catch (err) {
@@ -697,7 +746,9 @@ async function executor(state) {
       const msg = err?.message || String(err);
       console.warn(chalk.yellow("⚠️ [Executor] search_code 失败: " + msg));
       if (!Array.isArray(state.observations)) state.observations = [];
-      state.observations.push(`[search_code] keyword="${searchKeyword}" path=${searchDirPath} 错误: ${msg}`);
+      state.observations.push(
+        `[search_code] keyword="${searchKeyword}" path=${searchDirPath} 错误: ${msg}`,
+      );
       state.status = "running";
       return state;
     }
@@ -741,7 +792,9 @@ async function executor(state) {
     }
 
     try {
-      const { stdout, stderr } = await execAsync(command);
+      const { stdout, stderr } = await execAsync(command, {
+        timeout: EXEC_TIMEOUT_MS,
+      });
 
       if (stdout) {
         process.stdout.write(stdout);
@@ -754,24 +807,13 @@ async function executor(state) {
       state.status = "success";
       return state;
     } catch (error) {
-      const stdoutLog = error.stdout
-        ? `\n[STDOUT 输出]:\n${error.stdout}`
-        : "";
-      const stderrLog = error.stderr
-        ? `\n[STDERR 输出]:\n${error.stderr}`
-        : "";
-      const combinedLog =
-        `Command failed: ${error.message || ""}${stdoutLog}${stderrLog}` ||
-        "";
-
       if (error.stdout) {
         process.stdout.write(error.stdout);
       }
       if (error.stderr) {
         process.stderr.write(error.stderr);
       }
-
-      state.errorLog = combinedLog;
+      state.errorLog = buildExecErrorLog(error, "Command failed");
       state.retryCount += 1;
       return state;
     }
@@ -858,7 +900,7 @@ async function executor(state) {
           ? state.monitorCommand.trim()
           : `node ${file}`;
       try {
-        await execAsync(validateCommand);
+        await execAsync(validateCommand, { timeout: EXEC_TIMEOUT_MS });
         state.errorLog = "";
         state.status = "success";
         console.log(
@@ -866,14 +908,7 @@ async function executor(state) {
           "✅ [Validator] 验证通过！全量覆盖后的文件可以正常执行。",
         );
       } catch (error) {
-        const stdoutLog = error.stdout
-          ? `\n[STDOUT 输出]:\n${error.stdout}`
-          : "";
-        const stderrLog = error.stderr
-          ? `\n[STDERR 输出]:\n${error.stderr}`
-          : "";
-        const errorText = `Validator failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
-        state.errorLog = errorText;
+        state.errorLog = buildExecErrorLog(error, "Validator failed");
         console.warn(
           "\x1b[33m%s\x1b[0m",
           "⚠️ [Validator] 全量覆盖后仍存在报错，已记录到 errorLog 供下一轮分析。",
@@ -990,7 +1025,7 @@ async function executor(state) {
           ? state.monitorCommand.trim()
           : `node ${file}`;
       try {
-        await execAsync(validateCommand);
+        await execAsync(validateCommand, { timeout: EXEC_TIMEOUT_MS });
         state.errorLog = "";
         state.status = "success";
         console.log(
@@ -998,14 +1033,7 @@ async function executor(state) {
           "✅ [Validator] 验证通过！patch_code 修复有效。",
         );
       } catch (error) {
-        const stdoutLog = error.stdout
-          ? `\n[STDOUT 输出]:\n${error.stdout}`
-          : "";
-        const stderrLog = error.stderr
-          ? `\n[STDERR 输出]:\n${error.stderr}`
-          : "";
-        const errorText = `Validator failed: ${error.message || ""}${stdoutLog}${stderrLog}`;
-        state.errorLog = errorText;
+        state.errorLog = buildExecErrorLog(error, "Validator failed");
         console.warn(
           "\x1b[33m%s\x1b[0m",
           "⚠️ [Validator] patch_code 后仍存在报错，已记录到 errorLog 供下一轮分析。",
@@ -1033,10 +1061,19 @@ async function executor(state) {
   }
 
   // 未知或未识别的 action（如历史 edit_function）不执行任何操作，仅记录并重试
-  const knownActions = ["run_command", "replace_file", "patch_code", "list_dir", "read_file", "search_code"];
+  const knownActions = [
+    "run_command",
+    "replace_file",
+    "patch_code",
+    "list_dir",
+    "read_file",
+    "search_code",
+  ];
   if (action && !knownActions.includes(action)) {
     console.warn(
-      chalk.yellow(`⚠️ [Executor] 未识别的 action: "${action}"，请使用 patch_code、replace_file、run_command、list_dir、read_file 或 search_code。`),
+      chalk.yellow(
+        `⚠️ [Executor] 未识别的 action: "${action}"，请使用 patch_code、replace_file、run_command、list_dir、read_file 或 search_code。`,
+      ),
     );
     state.errorLog = `Executor 不支持 action "${action}"，请输出上述六种之一。`;
     state.retryCount += 1;
@@ -1059,7 +1096,9 @@ async function testerNode(state) {
   const baseFile = state.lastWrittenFile;
   if (!baseFile || typeof baseFile !== "string") {
     console.warn(
-      chalk.yellow("⚠️ [Tester] 缺少 lastWrittenFile，无法生成测试计划，跳过。"),
+      chalk.yellow(
+        "⚠️ [Tester] 缺少 lastWrittenFile，无法生成测试计划，跳过。",
+      ),
     );
     state.plan = null;
     return state;
@@ -1068,8 +1107,9 @@ async function testerNode(state) {
   // 同目录、同名 + .test.js，例如 sandbox/foo.js → sandbox/foo.test.js
   const baseDir = path.dirname(baseFile);
   const baseName = path.basename(baseFile, path.extname(baseFile));
-  const suggestedTestPath =
-    baseDir ? `${baseDir}/${baseName}.test.js` : `${baseName}.test.js`;
+  const suggestedTestPath = baseDir
+    ? `${baseDir}/${baseName}.test.js`
+    : `${baseName}.test.js`;
 
   const sys = [
     "你是一个极其严苛的资深 QA 测试工程师。开发者刚刚根据需求完成了业务代码的编写。",
@@ -1153,7 +1193,10 @@ const workflow = {
             await supervisor(state);
           }
           // 物理级刹车：安全拦截或重试耗尽时立即跳出状态机，不再进入下一轮 supervisor
-          if (state.status === "rollback" || state.status === "fatal_security") {
+          if (
+            state.status === "rollback" ||
+            state.status === "fatal_security"
+          ) {
             break;
           }
           await executor(state);
